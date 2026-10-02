@@ -1,78 +1,62 @@
-// The game window: a floating panel with the town map, the visual-novel scene, the cast, the journal
-// and the gallery. It reads everything through `app.view()` and sends every action back through `app`.
+// The sheet window: meters, attributes, money, items, conditions, the giants you know (with a to-scale
+// drawing and the numbers), and the log. Draggable, collapsible. Talks to the app through callbacks
+// and reads everything from app.view() on each refresh.
 
-import { BASE_H, BASE_W, drawTown, hitTest, layoutTown } from './map.js';
-import { POV_H, POV_W, drawFeetPov } from './feetpov.js';
-import { ARCHETYPES, DIALS, EXPRESSIONS, VERBS } from './sheet.js';
-import { CHECKS } from './rules.js';
-import { SLOTS, findLocation, typeOf, whoIsAt } from './world.js';
-import { PLAYER_CM, classOf, sizeLine } from './size.js';
+import { ATTRS, ATTR_HELP } from './dice.js';
+import { METERS, METER_HELP, levelFor, XP_PER_LEVEL } from './sheet.js';
+import { SIZE_CLASSES, ftIn, len, scaleOf, sizeLine } from './size.js';
+import { ART_H, ART_W, drawScale } from './scaleart.js';
 
-function el(tag, attrs = {}, ...children) {
-    const node = document.createElement(tag);
+export function el(tag, attrs = {}, ...kids) {
+    const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
-        if (v === undefined || v === null || v === false) continue;
-        if (k === 'class') node.className = v;
-        else if (k === 'text') node.textContent = v;
-        else if (k === 'html') node.innerHTML = v;
-        else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
-        else if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
-        else node.setAttribute(k, v === true ? '' : v);
+        if (v === null || v === undefined || v === false) continue;
+        if (k === 'class') n.className = v;
+        else if (k === 'style' && typeof v === 'object') Object.assign(n.style, v);
+        else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2).toLowerCase(), v);
+        else if (k === 'dataset') Object.assign(n.dataset, v);
+        else n.setAttribute(k, v === true ? '' : v);
     }
-    for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
-    return node;
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return n;
 }
-const btn = (label, title, onclick, cls = '') => el('button', { class: `ss-btn menu_button ${cls}`, type: 'button', title, onclick }, label);
-const iconBtn = (icon, title, onclick, cls = '') => el('button', { class: `ss-btn ss-icon menu_button ${cls}`, type: 'button', title, onclick }, el('i', { class: `fa-solid ${icon}` }));
-const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-const first = (name) => String(name || '').split(' ')[0];
-
-const TABS = [['map', 'fa-map', 'Map'], ['scene', 'fa-comments', 'Scene'], ['cast', 'fa-users', 'Cast'], ['journal', 'fa-book', 'Journal'], ['gallery', 'fa-images', 'Gallery'], ['log', 'fa-scroll', 'Log']];
+const btn = (text, title, onclick, cls = '') => el('button', { type: 'button', class: `sf-btn ${cls}`, title, onclick }, text);
 
 export class Panel {
-    /**
-     * @param {object} app see index.js: view(), onTravel, onWait, onSleep, onChoice, onFreeText, onVerb, onNewGame,
-     *   onMakeSprites, onMakeFeet, onMakeBackground, onPicture, onEditDial, onLayout, onClose, onExport, onImport, onRewind
-     * @param {object} [layout] saved { left, top, width, height, tab }
-     */
-    constructor(app, layout = {}) {
+    constructor(app, prefs = {}) {
         this.app = app;
-        this.layout = layout;
-        this.tab = layout.tab || 'map';
-        this.hover = null;
+        this.prefs = prefs;
+        this.selected = null; // npc id for the scale drawing
+        this.tab = prefs.tab || 'sheet';
+        this.root = el('div', { class: 'sf-panel', id: 'sf_panel' });
         this.tick = 0;
-        this.lineIndex = null; // which dialogue line is shown; null = the last
-        this.showAll = false;
-        this.everyone = false;
-        this.verbTarget = '';
-        this.feetView = null; // null = automatic (on during foot service), true/false = forced
-        this.maximized = false;
-        this._build();
     }
 
-    _build() {
-        this.strip = el('span', { class: 'ss-strip' });
-        this.status = el('div', { class: 'ss-status' });
-        this.tabBar = el('div', { class: 'ss-tabs' }, ...TABS.map(([id, icon, label]) => el('button', { class: 'ss-tab menu_button', type: 'button', 'data-tab': id, onclick: () => this.setTab(id) }, el('i', { class: `fa-solid ${icon}` }), ` ${label}`)));
-        this.body = el('div', { class: 'ss-body' });
-        const header = el('div', { class: 'ss-header' },
-            el('i', { class: 'fa-solid fa-socks' }), el('span', { class: 'ss-title', text: 'Sole Survivor' }), this.strip, el('div', { class: 'ss-spacer' }),
-            iconBtn('fa-wand-magic-sparkles', 'New game: build a town around the character(s) in this chat', () => this.app.onNewGame()),
-            iconBtn('fa-camera', 'A picture of this moment', () => this.app.onPicture()),
-            iconBtn('fa-rotate-left', 'Rewind: undo the last turn (the chat message stays; the game state goes back)', () => this.app.onRewind()),
-            iconBtn('fa-up-right-and-down-left-from-center', 'Full size', () => this.toggleMax()),
-            iconBtn('fa-xmark', 'Close', () => this.app.onClose()),
-        );
-        this.root = el('div', { class: 'ss-panel', style: { display: 'none' } }, header, this.tabBar, this.body, this.status);
+    mount(parent) {
+        const header = el('div', { class: 'sf-header' },
+            el('span', { class: 'sf-title' }, '🧍 Smallfolk'),
+            this.sub = el('span', { class: 'sf-sub' }),
+            el('span', { class: 'sf-spacer' }),
+            btn('–', 'Collapse', () => this.toggleCollapse()),
+            btn('×', 'Close', () => this.app.onClose()));
+        this.tabs = el('div', { class: 'sf-tabs' }, ...['sheet', 'bag', 'giants', 'log'].map((t) => el('button', { type: 'button', class: 'sf-tab', dataset: { tab: t }, onclick: () => { this.tab = t; this.prefs.tab = t; this.app.onPrefs(this.prefs); this.refresh(); } }, t)));
+        this.body = el('div', { class: 'sf-body' });
+        this.status = el('div', { class: 'sf-status' });
+        this.root.append(header, this.tabs, this.body, this.status);
+        const p = this.prefs;
+        if (p.left !== undefined) Object.assign(this.root.style, { left: `${p.left}px`, top: `${p.top}px`, right: 'auto' });
+        if (p.width) this.root.style.width = `${p.width}px`;
+        if (p.collapsed) this.root.classList.add('sf-collapsed');
+        parent.append(this.root);
         this._drag(header);
-        if (this.layout.width) Object.assign(this.root.style, { left: `${this.layout.left}px`, top: `${this.layout.top}px`, width: `${this.layout.width}px`, height: `${this.layout.height}px`, right: 'auto' });
-        new ResizeObserver(() => this._saveLayout()).observe(this.root);
+        this.root.addEventListener('pointerup', () => this._savePos());
+        this.refresh();
     }
 
     _drag(handle) {
         let start = null;
         handle.addEventListener('pointerdown', (ev) => {
-            if (ev.target.closest('button') || this.maximized) return;
+            if (ev.target.closest('button')) return;
             const r = this.root.getBoundingClientRect();
             start = { x: ev.clientX - r.left, y: ev.clientY - r.top };
             handle.setPointerCapture(ev.pointerId);
@@ -81,257 +65,133 @@ export class Panel {
             if (!start) return;
             Object.assign(this.root.style, { left: `${Math.max(0, ev.clientX - start.x)}px`, top: `${Math.max(0, ev.clientY - start.y)}px`, right: 'auto' });
         });
-        handle.addEventListener('pointerup', () => { if (start) { start = null; this._saveLayout(); } });
+        handle.addEventListener('pointerup', () => { start = null; this._savePos(); });
     }
-
-    _saveLayout() {
-        if (!this.root.isConnected || this.root.style.display === 'none' || this.maximized) return;
+    _savePos() {
         const r = this.root.getBoundingClientRect();
-        this.app.onLayout?.({ left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), tab: this.tab });
+        Object.assign(this.prefs, { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width) });
+        this.app.onPrefs(this.prefs);
     }
-
-    mount(parent) { parent.append(this.root); }
-    get isOpen() { return this.root.isConnected && this.root.style.display !== 'none'; }
-    show() { this.root.style.display = ''; this.refresh(); this._animate(); }
+    toggleCollapse(force) {
+        const on = force ?? !this.root.classList.contains('sf-collapsed');
+        this.root.classList.toggle('sf-collapsed', on);
+        this.prefs.collapsed = on;
+        this.app.onPrefs(this.prefs);
+    }
+    show() { this.root.style.display = ''; this.refresh(); }
     hide() { this.root.style.display = 'none'; }
-    toggleMax(force) {
-        this.maximized = force ?? !this.maximized;
-        this.root.classList.toggle('ss-max', this.maximized);
-        this.refresh();
-    }
-    setStatus(text, isError = false) { this.status.textContent = text || ''; this.status.classList.toggle('ss-error', Boolean(isError)); }
-    setBusy(on, text) { this.root.classList.toggle('ss-busy', Boolean(on)); if (text !== undefined) this.setStatus(text); }
-    setTab(id) { this.tab = id; this.refresh(); this._saveLayout(); }
+    get isOpen() { return this.root.isConnected && this.root.style.display !== 'none'; }
+    setStatus(text) { this.status.textContent = text || ''; }
 
-    /** Redraw everything from app.view(). */
     refresh() {
         if (!this.isOpen) return;
         const v = this.app.view();
-        for (const b of this.tabBar.querySelectorAll('.ss-tab')) b.classList.toggle('ss-active', b.dataset.tab === this.tab);
-        this.strip.textContent = v.world && v.state ? `Day ${v.state.day} · ${cap(v.state.slot)} · $${v.state.player.money} · ${Math.round(v.state.player.size_cm)} cm` : '';
+        this.tabs.querySelectorAll('.sf-tab').forEach((b) => b.classList.toggle('sf-on', b.dataset.tab === this.tab));
+        const s = v.sheet;
+        this.sub.textContent = s ? `${s.name} · ${ftIn(s.height_cm)} · ${v.moneyText}` : '';
         this.body.replaceChildren();
-        if (!v.world || !v.state) { this.body.append(this._welcome(v)); return; }
-        const draw = { map: () => this._map(v), scene: () => this._scene(v), cast: () => this._cast(v), journal: () => this._journal(v), gallery: () => this._gallery(v), log: () => this._log(v) }[this.tab] ?? (() => this._map(v));
-        this.body.append(draw());
+        if (!s) { this.body.append(el('div', { class: 'sf-empty' }, v.hint || 'Open a chat to start a sheet.', el('div', {}, btn('Start a sheet', 'New sheet for this chat', () => this.app.onNew(), 'sf-primary')))); return; }
+        const draw = { sheet: () => this.sheetTab(v), bag: () => this.bagTab(v), giants: () => this.giantsTab(v), log: () => this.logTab(v) }[this.tab] || (() => this.sheetTab(v));
+        draw();
     }
 
-    _welcome(v) {
-        return el('div', { class: 'ss-welcome' },
-            el('h3', { text: 'Sole Survivor' }),
-            el('p', { text: v.chatOpen ? `Build a town around ${v.cast?.join(', ') || 'the character in this chat'}: their home, their haunts, their friends and rivals, and a few places that start CLOSED. Then explore it.` : 'Open a chat with a character first.' }),
-            v.chatOpen ? btn('New game', 'Generate the town and cast (takes a minute)', () => this.app.onNewGame(), 'ss-primary') : null,
-            el('p', { class: 'ss-hint', text: 'Click a building on the map to go there. Entering a place where someone is starts a scene; the choices you pick are sent as your messages.' }),
-        );
-    }
-
-    // ------------------------------------------------------------------ map
-
-    _map(v) {
-        const { world, state } = v;
-        if (!this.layoutCache || this.layoutCache.key !== `${world.locations.length}:${v.layoutSeed}`) this.layoutCache = { key: `${world.locations.length}:${v.layoutSeed}`, layout: layoutTown(world, { seed: v.layoutSeed }) };
-        const layout = this.layoutCache.layout;
-        this.canvas = el('canvas', { class: 'ss-map', width: BASE_W, height: BASE_H });
-        const toBase = (ev) => { const r = this.canvas.getBoundingClientRect(); return { x: ((ev.clientX - r.left) / r.width) * BASE_W, y: ((ev.clientY - r.top) / r.height) * BASE_H }; };
-        this.canvas.addEventListener('pointermove', (ev) => { const p = toBase(ev); const id = hitTest(layout, p.x, p.y); if (id !== this.hover) { this.hover = id; this._mapInfo(v); } });
-        this.canvas.addEventListener('pointerleave', () => { this.hover = null; this._mapInfo(v); });
-        this.canvas.addEventListener('click', (ev) => { const p = toBase(ev); const id = hitTest(layout, p.x, p.y); if (id) this.app.onTravel(id); });
-        this.info = el('div', { class: 'ss-mapinfo' });
-        this._mapInfo(v);
-        const bar = el('div', { class: 'ss-bar' },
-            btn('Wait', 'Let this part of the day pass', () => this.app.onWait()),
-            btn('Sleep', 'Go home and sleep until morning', () => this.app.onSleep()),
-            btn(this.everyone ? 'Hide people' : 'Where is everyone?', 'Show where the residents are right now', () => { this.everyone = !this.everyone; this.refresh(); }),
-            el('div', { class: 'ss-spacer' }),
-            btn('Look around', 'A scene here, without moving', () => this.app.onLook()),
-        );
-        this._drawMap(v, layout);
-        return el('div', { class: 'ss-maptab' }, el('div', { class: 'ss-mapwrap' }, this.canvas), this.info, bar);
-    }
-
-    _drawMap(v, layout) {
-        if (!this.canvas) return;
-        const { world, state } = v;
-        const open = {}, people = {};
-        for (const l of world.locations) open[l.id] = v.statusOf(l);
-        if (this.everyone) for (const l of world.locations) { const here = whoIsAt(world, l.id, state.slot); if (here.length) people[l.id] = here.map((s) => ({ name: s.name, color: s.card ? '#ff7ab6' : '#9ad0ff' })); }
-        drawTown(this.canvas, layout, world, { open, people, hover: this.hover, at: state.at, slot: state.slot, tick: this.tick });
-    }
-
-    _mapInfo(v) {
-        if (!this.info) return;
-        const { world, state } = v;
-        const loc = findLocation(world, this.hover || state.at);
-        if (!loc) { this.info.textContent = ''; return; }
-        const here = whoIsAt(world, loc.id, state.slot);
-        const status = v.statusOf(loc);
-        this.info.replaceChildren(
-            el('b', { text: loc.name }), ` · ${typeOf(loc).label}`,
-            loc.id === state.at ? el('span', { class: 'ss-tag', text: 'you are here' }) : null,
-            status === 'open' ? el('span', { class: 'ss-tag ss-open', text: 'open' }) : el('span', { class: 'ss-tag ss-closed', text: status === 'locked' ? 'CLOSED' : 'closed now' }),
-            el('div', { class: 'ss-hint', text: status === 'open' ? (here.length ? `Here now: ${here.map((s) => s.name).join(', ')}.` : 'Nobody here right now.') : v.hint(loc) }),
-        );
-    }
-
-    _animate() {
-        if (this._raf) return;
-        let last = 0;
-        const step = (t) => {
-            this._raf = null;
-            if (!this.isOpen) return;
-            if (t - last > 90) {
-                last = t; this.tick++;
-                if (this.tab === 'map' && this.canvas && this.layoutCache) this._drawMap(this.app.view(), this.layoutCache.layout);
-                if (this.tab === 'scene' && this.povCanvas?.isConnected) drawFeetPov(this.povCanvas.getContext('2d'), { ...this.povArgs, tick: this.tick });
-            }
-            this._raf = requestAnimationFrame(step);
-        };
-        this._raf = requestAnimationFrame(step);
-    }
-
-    // ------------------------------------------------------------------ scene
-
-    _scene(v) {
-        const { world, state } = v;
-        const here = findLocation(world, state.at);
-        const present = v.present;
-        const scene = state.scene;
-        const bg = here ? v.backgroundUrl(here) : '';
-        const target = present.find((s) => s.id === this.verbTarget) ?? present[0] ?? null;
-        const feetOn = Boolean(target) && (this.feetView ?? ['service_row', 'punishment'].includes(state.event?.type));
-        let stageInner;
-        if (feetOn) {
-            this.povCanvas = el('canvas', { class: 'ss-pov', width: POV_W, height: POV_H });
-            this.povArgs = { sheet: target, feet: v.feetState(target.id) || 'socks', tiny: state.player.size_cm < 100 };
-            drawFeetPov(this.povCanvas.getContext('2d'), { ...this.povArgs, tick: this.tick });
-            stageInner = [this.povCanvas, el('div', { class: 'ss-pov-name', text: `${first(target.name)} · ${this.povArgs.feet}` })];
-        } else {
-            this.povCanvas = null;
-            const tallest = present.reduce((m, s) => Math.max(m, s.height_cm || 0), 0);
-            const youPct = tallest ? Math.max(3, Math.min(30, (62 + ((present.find((s) => s.height_cm === tallest)?.size_class ?? 1) - 1) * 40) * (PLAYER_CM / tallest))) : 0;
-            stageInner = [!bg ? el('div', { class: 'ss-stage-text', text: here ? `${here.name}: ${here.interior}` : '' }) : null,
-                el('div', { class: 'ss-sprites' }, ...present.map((s) => this._sprite(v, s))),
-                present.length ? el('div', { class: 'ss-you', style: { height: `${youPct}%` }, title: `${v.user}: ${PLAYER_CM} cm, for scale` }, el('img', { src: v.youUrl(), alt: 'you', draggable: false })) : null];
+    // -------------------------------------------------------------- sheet
+    sheetTab(v) {
+        const s = v.sheet;
+        const name = el('input', { class: 'sf-input sf-name', value: s.name, title: 'Your name on the sheet', onchange: (e) => this.app.onEdit('name', e.target.value) });
+        const height = el('input', { class: 'sf-input sf-num', type: 'number', min: 30, max: 300, value: s.height_cm, title: 'Your height in cm (91 cm is 3 ft)', onchange: (e) => this.app.onEdit('height_cm', Number(e.target.value)) });
+        this.body.append(el('div', { class: 'sf-row sf-ident' }, name, el('label', {}, 'cm ', height), el('span', { class: 'sf-tag' }, `level ${levelFor(s.xp)}`)));
+        const meters = el('div', { class: 'sf-meters' });
+        for (const m of METERS) {
+            const { cur, max } = s.meters[m];
+            const pct = Math.round((cur / max) * 100);
+            meters.append(el('div', { class: `sf-meter sf-${m}`, title: METER_HELP[m] },
+                el('span', { class: 'sf-meter-name' }, m),
+                el('div', { class: 'sf-bar' }, el('div', { class: 'sf-fill', style: { width: `${pct}%` } }), el('span', { class: 'sf-bar-text' }, `${cur}/${max}`)),
+                btn('−', `${m} −1`, () => this.app.onMeter(m, -1)), btn('+', `${m} +1`, () => this.app.onMeter(m, +1)),
+                el('input', { class: 'sf-input sf-num sf-max', type: 'number', min: 1, max: 999, value: max, title: `${m} maximum`, onchange: (e) => this.app.onMeterMax(m, Number(e.target.value)) })));
         }
-        const stage = el('div', { class: `ss-stage${feetOn ? ' ss-stage-pov' : ''}`, style: bg && !feetOn ? { backgroundImage: `url("${encodeURI(bg)}")` } : {} },
-            ...stageInner,
-            el('div', { class: 'ss-stage-tools' },
-                target ? iconBtn('fa-socks', feetOn ? 'Back to the room view' : `Feet view: ${first(target.name)}'s feet up on the table`, () => { this.feetView = !feetOn; this.refresh(); }, feetOn ? 'ss-active' : '') : null,
-                here && !bg && !feetOn ? iconBtn('fa-image', 'Make a background picture for this place', () => this.app.onMakeBackground(here.id)) : null,
-                here ? iconBtn('fa-location-dot', here.name, () => this.setTab('map')) : null,
-            ),
-        );
-        // Dialogue box.
-        const lines = scene?.lines ?? [];
-        const narration = scene?.narration ?? [];
-        let box;
-        if (!scene) box = el('div', { class: 'ss-dialogue' }, el('div', { class: 'ss-narration', text: here ? (present.length ? `${present.map((s) => first(s.name)).join(' and ')} ${present.length > 1 ? 'are' : 'is'} here. Say or do something to start the scene.` : 'Nobody is here. Look around, or go somewhere else.') : '' }));
-        else if (this.showAll || !lines.length) box = el('div', { class: 'ss-dialogue ss-all' }, ...narration.map((n) => el('div', { class: 'ss-narration', text: n })), ...lines.map((l) => el('div', { class: 'ss-line' }, el('b', { text: l.who }), el('span', { class: 'ss-expr', text: ` [${l.expr}]` }), ` ${l.text}`)));
-        else {
-            const i = this.lineIndex === null ? lines.length - 1 : Math.max(0, Math.min(lines.length - 1, this.lineIndex));
-            const l = lines[i];
-            box = el('div', { class: 'ss-dialogue', onclick: () => { this.lineIndex = i + 1 < lines.length ? i + 1 : null; this.refresh(); } },
-                i === 0 && narration.length ? el('div', { class: 'ss-narration', text: narration[0] }) : null,
-                el('div', { class: 'ss-nameplate', text: l.who }),
-                el('div', { class: 'ss-words', text: l.text }),
-                el('div', { class: 'ss-page', text: `${i + 1}/${lines.length} ▸` }),
-            );
+        this.body.append(meters);
+        const xpPct = Math.round(((s.xp % XP_PER_LEVEL) / XP_PER_LEVEL) * 100);
+        this.body.append(el('div', { class: 'sf-xp', title: `${s.xp} xp; ${XP_PER_LEVEL} per level` }, el('span', { class: 'sf-meter-name' }, 'xp'), el('div', { class: 'sf-bar' }, el('div', { class: 'sf-fill', style: { width: `${xpPct}%` } }), el('span', { class: 'sf-bar-text' }, `${s.xp % XP_PER_LEVEL}/${XP_PER_LEVEL}`)), btn('+5', 'xp +5', () => this.app.onXp(5))));
+        const attrs = el('div', { class: 'sf-attrs' });
+        for (const a of ATTRS) {
+            attrs.append(el('div', { class: 'sf-attr', title: ATTR_HELP[a] }, el('span', { class: 'sf-attr-name' }, a), el('b', {}, `+${s.attrs[a]}`),
+                s.points > 0 ? btn('▲', `Spend a point on ${a}`, () => this.app.onSpend(a), 'sf-mini') : el('span', { class: 'sf-dots' }, '●'.repeat(Math.min(9, s.attrs[a])))));
         }
-        const toggles = el('div', { class: 'ss-bar ss-small' },
-            lines.length > 1 ? btn(this.showAll ? 'One line at a time' : 'Show the whole scene', '', () => { this.showAll = !this.showAll; this.refresh(); }) : null,
-            lines.length > 1 && !this.showAll ? btn('◂', 'Previous line', () => { const n = (this.lineIndex ?? lines.length - 1) - 1; this.lineIndex = Math.max(0, n); this.refresh(); }) : null,
-        );
-        // Choices.
-        const choices = el('div', { class: 'ss-choices' }, ...(scene?.choices ?? []).map((c) => {
-            const who = present[0];
-            const o = c.check && who ? v.odds(who, c.check) : null;
-            return el('button', { class: 'ss-choice menu_button', type: 'button', onclick: () => this.app.onChoice(c) },
-                el('span', { class: 'ss-n', text: `${c.n}.` }), ` ${c.text}`,
-                c.check ? el('span', { class: 'ss-check', text: ` ${CHECKS[c.check]?.label ?? c.check}${o !== null ? ` ${Math.round(o * 100)}%` : ''}` }) : null);
-        }));
-        // Verb bar (foot service) when someone is here.
-        let verbs = null;
-        if (present.length) {
-            const target = present.find((s) => s.id === this.verbTarget) ?? present[0];
-            verbs = el('div', { class: 'ss-verbs' },
-                ...VERBS.map((vb) => { const o = v.odds(target, vb); return el('button', { class: 'ss-verb', type: 'button', title: `${cap(vb)} ${first(target.name)}'s feet (${Math.round(o * 100)}%)`, onclick: () => this.app.onVerb(vb, target.id) }, vb.toUpperCase()); }),
-                present.length > 1 ? el('select', { class: 'text_pole ss-target', onchange: (e) => { this.verbTarget = e.target.value; this.refresh(); } }, ...present.map((s) => el('option', { value: s.id, selected: s.id === target.id, text: first(s.name) }))) : el('span', { class: 'ss-hint', text: first(target.name) }),
-                el('span', { class: 'ss-meters' }, `favor ${state.rel[target.id]?.favor ?? 0} · irritation ${state.rel[target.id]?.irritation ?? 0}/10`),
-            );
+        this.body.append(attrs);
+        if (s.points > 0) this.body.append(el('div', { class: 'sf-note sf-good' }, `${s.points} attribute point${s.points > 1 ? 's' : ''} to spend.`));
+        this.body.append(el('div', { class: 'sf-row' },
+            el('label', { class: 'sf-money' }, s.currency, el('input', { class: 'sf-input sf-num sf-money-in', type: 'number', min: 0, step: '0.5', value: s.money, onchange: (e) => this.app.onEdit('money', Number(e.target.value)) })),
+            btn('−5', '', () => this.app.onMoney(-5)), btn('+5', '', () => this.app.onMoney(5)), btn('+20', '', () => this.app.onMoney(20)),
+            v.roll ? el('span', { class: 'sf-tag sf-dice', title: 'The d20 the model gets for your next action' }, `🎲 ${v.roll}`) : null));
+        const conds = el('div', { class: 'sf-conds' }, ...s.conditions.map((c) => el('span', { class: 'sf-cond', title: 'Click to clear', onclick: () => this.app.onCond(c, false) }, c, ' ×')),
+            el('input', { class: 'sf-input sf-cond-in', placeholder: '+ condition', onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim()) { this.app.onCond(e.target.value.trim(), true); e.target.value = ''; } } }));
+        this.body.append(conds);
+        this.body.append(el('div', { class: 'sf-row sf-where' },
+            el('input', { class: 'sf-input', value: s.clock, placeholder: 'time (Day 1, morning)', onchange: (e) => this.app.onEdit('clock', e.target.value) }),
+            el('input', { class: 'sf-input sf-grow', value: s.place, placeholder: 'where you are', onchange: (e) => this.app.onEdit('place', e.target.value) })));
+        if (s.notes.length) this.body.append(el('div', { class: 'sf-notes' }, ...s.notes.map((n, i) => el('div', { class: 'sf-note-line' }, n, btn('×', 'Forget', () => this.app.onNoteRemove(i), 'sf-mini')))));
+        this.body.append(el('div', { class: 'sf-row sf-actions' }, btn('↶ Undo', 'Undo the last change', () => this.app.onUndo()), btn('Rest', 'Restore the meters (a night of sleep)', () => this.app.onRest()), btn('New sheet', 'Start this chat over', () => this.app.onNew(), 'sf-danger')));
+    }
+
+    // -------------------------------------------------------------- bag
+    bagTab(v) {
+        const s = v.sheet;
+        const list = el('div', { class: 'sf-items' });
+        if (!s.items.length) list.append(el('div', { class: 'sf-empty' }, 'Nothing but the clothes on your back.'));
+        for (const it of s.items) {
+            list.append(el('div', { class: 'sf-item' },
+                el('span', { class: 'sf-item-name' }, it.name), el('span', { class: 'sf-item-qty' }, `×${it.qty}`),
+                el('input', { class: 'sf-input sf-grow sf-item-note', value: it.note, placeholder: 'note', onchange: (e) => this.app.onItemNote(it.id, e.target.value) }),
+                btn('−', 'One fewer', () => this.app.onItem(it.name, -1)), btn('+', 'One more', () => this.app.onItem(it.name, +1)), btn('×', 'Drop all', () => this.app.onItem(it.name, -it.qty), 'sf-danger')));
         }
-        const input = el('input', { class: 'text_pole ss-free', placeholder: 'Or type what you do…', onkeydown: (e) => { if (e.key === 'Enter' && input.value.trim()) { this.app.onFreeText(input.value.trim()); input.value = ''; } } });
-        const free = el('div', { class: 'ss-bar' }, input, btn('Send', '', () => { if (input.value.trim()) { this.app.onFreeText(input.value.trim()); input.value = ''; } }), btn('Leave', 'Back to the map', () => this.setTab('map')));
-        const meters = el('div', { class: 'ss-meters ss-bar ss-small' }, `Stamina ${state.player.stamina}/10 · Composure ${state.player.composure}/10 · Dirt ${state.player.dirt}/10${state.inventory.length ? ` · ${state.inventory.join(', ')}` : ''}`);
-        return el('div', { class: 'ss-scenetab' }, stage, box, toggles, choices, verbs, free, meters);
+        const name = el('input', { class: 'sf-input sf-grow', placeholder: 'item' });
+        const qty = el('input', { class: 'sf-input sf-num', type: 'number', min: 1, value: 1 });
+        const note = el('input', { class: 'sf-input sf-grow', placeholder: 'note' });
+        const add = () => { if (name.value.trim()) { this.app.onItem(name.value.trim(), Number(qty.value) || 1, note.value.trim()); name.value = ''; note.value = ''; qty.value = 1; } };
+        for (const i of [name, note]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+        this.body.append(el('div', { class: 'sf-row' }, el('b', {}, `${s.currency}${s.money}`), el('span', { class: 'sf-dim' }, ` · ${s.items.reduce((a, i) => a + i.qty, 0)} things`)), list, el('div', { class: 'sf-row sf-add' }, name, qty, note, btn('Add', 'Add the item', add, 'sf-primary')));
     }
 
-    _sprite(v, s) {
-        const expr = v.expressionOf(s);
-        const url = v.spriteUrl(s, expr);
-        const feet = v.feetState(s.id);
-        // Height on the stage by class: class 1 fits, class 6 towers out of the top (you see her legs and feet).
-        const cls = s.size_class ?? 1;
-        const pct = Math.min(260, 62 + (cls - 1) * 40);
-        const wrap = el('div', { class: `ss-sprite ss-expr-${expr}`, title: `${s.name} (${expr}${feet ? `, ${feet}` : ''}) · ${sizeLine(s)}`, style: { height: `${pct}%` } });
-        const generated = Boolean(s.sprites?.[expr] || s.sprites?.neutral);
-        if (url) wrap.append(el('img', { src: url, alt: s.name, draggable: false }));
-        else wrap.append(el('div', { class: 'ss-silhouette' }, el('span', { text: first(s.name) })));
-        if (!generated) wrap.append(v.spritesBusy(s.id) ? el('div', { class: 'ss-hint', text: 'drawing…' }) : btn('Make sprites', `Generate ${first(s.name)}'s expression sheet with the image model`, () => this.app.onMakeSprites(s.id), 'ss-small'));
-        wrap.append(el('div', { class: 'ss-sprite-name', text: `${first(s.name)} · ${expr} · ${classOf(cls).name} ${Math.round(s.height_cm / 30.48)} ft` }));
-        return wrap;
+    // -------------------------------------------------------------- giants
+    giantsTab(v) {
+        const list = v.npcs;
+        if (this.selected && !list.some((n) => n.id === this.selected)) this.selected = null;
+        if (!this.selected) this.selected = (list.find((n) => n.card) ?? list[0])?.id ?? null;
+        const npc = list.find((n) => n.id === this.selected) ?? null;
+        const canvas = el('canvas', { class: 'sf-art', width: ART_W, height: ART_H });
+        drawScale(canvas, { npc, playerCm: v.sheet.height_cm, user: v.sheet.name, tick: this.tick });
+        this.body.append(canvas);
+        if (npc) {
+            const sc = scaleOf(npc.height_cm, v.sheet.height_cm);
+            const facts = el('div', { class: 'sf-facts' });
+            for (const f of [...sc.body, ...sc.things]) facts.append(el('div', { class: 'sf-fact' }, el('span', { class: 'sf-fact-name' }, f.name), el('span', {}, len(f.cm)), el('span', { class: 'sf-dim' }, f.vs)));
+            this.body.append(el('details', { class: 'sf-details' }, el('summary', {}, `${npc.name}: the numbers`), facts));
+        }
+        const roster = el('div', { class: 'sf-npcs' });
+        if (!list.length) roster.append(el('div', { class: 'sf-empty' }, 'No giants yet. They are added when the story names one (or add one below).'));
+        for (const n of list) {
+            const cls = el('select', { class: 'sf-input sf-class', title: 'Pin her class (her height is re-rolled inside it)', onchange: (e) => this.app.onNpcClass(n.id, Number(e.target.value)) }, ...SIZE_CLASSES.map((c) => el('option', { value: c.n, selected: c.n === n.size_class }, `${c.n} ${c.name}`)));
+            roster.append(el('div', { class: `sf-npc${n.id === this.selected ? ' sf-on' : ''}${n.card ? ' sf-card' : ''}`, onclick: (e) => { if (e.target.closest('input, select, button')) return; this.selected = n.id; this.refresh(); } },
+                el('div', { class: 'sf-npc-head' }, el('b', {}, n.name), el('span', { class: 'sf-dim' }, ` ${sizeLine(n, v.sheet.height_cm)}`), el('span', { class: 'sf-spacer' }), cls, btn('🎲', 'Re-roll her height', () => this.app.onNpcReroll(n.id), 'sf-mini'), btn('×', 'Forget her', () => this.app.onNpcRemove(n.id), 'sf-mini sf-danger')),
+                el('div', { class: 'sf-row' }, el('input', { class: 'sf-input sf-grow', value: n.relation, placeholder: 'relation (owes you; thinks you are a pet)', onchange: (e) => this.app.onNpcEdit(n.id, 'relation', e.target.value) })),
+                el('div', { class: 'sf-row' }, el('input', { class: 'sf-input sf-grow', value: n.note, placeholder: 'note', onchange: (e) => this.app.onNpcEdit(n.id, 'note', e.target.value) }))));
+        }
+        this.body.append(roster);
+        const name = el('input', { class: 'sf-input sf-grow', placeholder: 'name a giant' });
+        const pick = el('select', { class: 'sf-input sf-class' }, el('option', { value: '' }, 'roll class'), ...SIZE_CLASSES.map((c) => el('option', { value: c.n }, `${c.n} ${c.name}`)));
+        const add = () => { if (name.value.trim()) { this.app.onNpcAdd(name.value.trim(), Number(pick.value) || null); name.value = ''; } };
+        name.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+        this.body.append(el('div', { class: 'sf-row sf-add' }, name, pick, btn('Add', 'Add her', add, 'sf-primary')));
     }
 
-    // ------------------------------------------------------------------ cast
-
-    _cast(v) {
-        const { world, state } = v;
-        return el('div', { class: 'ss-casttab' }, ...world.residents.map((s) => {
-            const r = state.rel[s.id] ?? {};
-            const url = v.spriteUrl(s, 'neutral');
-            const feetUrl = v.feetUrl(s);
-            return el('div', { class: 'ss-card' },
-                el('div', { class: 'ss-card-pic' }, url ? el('img', { src: url, alt: s.name }) : el('div', { class: 'ss-silhouette' }, el('span', { text: first(s.name) }))),
-                el('div', { class: 'ss-card-body' },
-                    el('div', { class: 'ss-card-head' }, el('b', { text: s.name }), s.card ? el('span', { class: 'ss-tag', text: 'your character' }) : null, ` ${s.age} · ${s.archetype} · ${s.job || ''}`, el('span', { class: 'ss-tag ss-size', text: sizeLine(s) })),
-                    el('div', { class: 'ss-hint', text: ARCHETYPES[s.archetype]?.line }),
-                    el('div', { text: s.hook }),
-                    el('div', { class: 'ss-hint', text: `Feet: ${s.shoes}; ${s.socks}. Smell: cheesy ${s.odor.cheesy}% lemony ${s.odor.lemony}% fishy ${s.odor.fishy}% meaty ${s.odor.meaty}%.` }),
-                    el('div', { class: 'ss-hint', text: `Likes ${s.wants.verbs.join(', ')}${s.wants.hates.length ? `; hates ${s.wants.hates.join(', ')}` : ''}. Home: ${findLocation(world, s.home)?.name ?? '?'}. ${SLOTS.map((sl) => `${sl}: ${findLocation(world, s.schedule[sl])?.name ?? '?'}`).join(' · ')}` }),
-                    el('div', { class: 'ss-dials' }, ...DIALS.map((d) => el('label', { title: d }, `${d} `, el('input', { type: 'number', min: 0, max: 11, value: s.dials[d], class: 'text_pole ss-num', onchange: (e) => this.app.onEditDial(s.id, d, Number(e.target.value)) })))),
-                    el('div', { class: 'ss-meters', text: `favor ${r.favor ?? 0} · irritation ${r.irritation ?? 0}/10 · fear ${r.fear ?? 0}/10${r.met ? '' : ' · not met yet'}` }),
-                    el('div', { class: 'ss-bar ss-small' },
-                        btn(url ? 'Redo sprites' : 'Make sprites', 'Generate the six-expression sprite sheet', () => this.app.onMakeSprites(s.id)),
-                        btn(feetUrl ? 'Redo feet card' : 'Make feet card', 'Generate shoes / socks / bare soles reference', () => this.app.onMakeFeet(s.id)),
-                        feetUrl ? el('a', { href: feetUrl, target: '_blank', class: 'ss-hint', text: 'feet card' }) : null,
-                    ),
-                ),
-            );
-        }));
-    }
-
-    // ------------------------------------------------------------------ journal, gallery, log
-
-    _journal(v) {
-        const { world, state } = v;
-        const quests = world.quests.map((q) => ({ q, s: state.quests[q.id] ?? { status: 'hidden' } })).filter(({ s }) => s.status !== 'hidden');
-        return el('div', { class: 'ss-journal' },
-            el('h4', { text: world.town.name }), el('p', { text: world.town.intro || world.town.vibe }),
-            el('h4', { text: 'Quests' }),
-            quests.length ? el('ul', {}, ...quests.map(({ q, s }) => el('li', { class: s.status === 'done' ? 'ss-done' : '' }, el('b', { text: q.title }), ` (${world.residents.find((r) => r.id === q.giver)?.name ?? '?'}): ${q.goal}${q.reward.opens ? ` → opens ${findLocation(world, q.reward.opens)?.name}` : ''}${s.status === 'done' ? ' ✓' : ''}`))) : el('p', { class: 'ss-hint', text: 'No quests yet. Talk to people.' }),
-            el('h4', { text: 'Carrying' }), el('p', { text: state.inventory.join(', ') || 'nothing' }),
-            el('h4', { text: 'Places' }), el('p', { class: 'ss-hint', text: world.locations.map((l) => `${l.name}${v.statusOf(l) === 'locked' ? ' (CLOSED: ' + v.hint(l) + ')' : ''}`).join(' · ') }),
-            state.endings.length ? el('div', {}, el('h4', { text: 'Endings seen' }), el('p', { text: state.endings.join(' · ') })) : null,
-            el('div', { class: 'ss-bar ss-small' }, btn('Export town', 'Copy the town and cast as JSON', () => this.app.onExport()), btn('Import town', 'Paste a town JSON', () => this.app.onImport())),
-        );
-    }
-
-    _gallery(v) {
-        const items = v.gallery ?? [];
-        return el('div', { class: 'ss-gallery' }, items.length ? items.slice().reverse().map((g) => el('a', { href: g.url, target: '_blank', title: g.title }, el('img', { src: g.url, alt: g.title }))) : el('p', { class: 'ss-hint', text: 'Pictures you make land here.' }));
-    }
-
-    _log(v) {
-        return el('pre', { class: 'ss-log', text: (v.log ?? []).slice(-80).join('\n') });
+    // -------------------------------------------------------------- log
+    logTab(v) {
+        const box = el('div', { class: 'sf-log' });
+        for (const line of [...(v.log ?? [])].reverse()) box.append(el('div', { class: 'sf-log-line' }, line));
+        if (!v.log?.length) box.append(el('div', { class: 'sf-empty' }, 'Nothing yet.'));
+        this.body.append(box);
+        if (v.checks?.length) this.body.append(el('div', { class: 'sf-note' }, `Checks: ${v.checks.slice(-5).join('; ')}`));
     }
 }
-
-export { EXPRESSIONS };

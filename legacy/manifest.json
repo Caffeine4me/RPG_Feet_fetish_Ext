@@ -1,13 +1,13 @@
 {
-    "display_name": "Smallfolk (3 ft tall in a world of giants)",
+    "display_name": "Sole Survivor (giantess foot RPG)",
     "loading_order": 120,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "caffeine4me",
-    "version": "0.2.0",
+    "version": "0.1.0",
     "homePage": "https://github.com/caffeine4me/RPG_Feet_fetish_Ext",
     "auto_update": true,
-    "generate_interceptor": "smallfolkInterceptor"
+    "generate_interceptor": "soleSurvivorInterceptor"
 }

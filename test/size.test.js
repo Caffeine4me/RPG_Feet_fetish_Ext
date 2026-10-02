@@ -1,35 +1,39 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classForHeight, heightFor, rollCast, rollClass, scaleOf, scaleText, sizeLine } from '../src/size.js';
+import { classForHeight, heightFor, playerText, rollClass, scaleOf, scaleText, sizeLine, vsYou, PLAYER_CM } from '../src/size.js';
 
-test('classes roll by weight: common small, rare mythic', () => {
-    assert.equal(rollClass(0), 1);
-    assert.equal(rollClass(0.39), 1);
-    assert.equal(rollClass(0.41), 2);
-    assert.equal(rollClass(0.999), 6);
-    assert.equal(rollClass(0.98), 5);
-    let counts = [0, 0, 0, 0, 0, 0];
-    for (let i = 0; i < 1000; i++) counts[rollClass(i / 1000) - 1]++;
-    assert.ok(counts[0] > counts[1] && counts[1] > counts[2] && counts[5] < 20);
+test('classes are weighted, rarer the taller', () => {
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < 1000; i++) counts[rollClass(i / 1000)]++;
+    assert.equal(counts[1], 400); assert.equal(counts[2], 270); assert.equal(counts[6], 10);
+    assert.equal(rollClass(0), 1); assert.equal(rollClass(0.999), 6);
 });
 
-test('heights, classes and scale', () => {
-    assert.equal(heightFor(1, 0), 305);
-    assert.equal(heightFor(6, 1), 3048);
-    assert.equal(classForHeight(1200), 3);
-    assert.equal(classForHeight(3000), 6);
-    const s = scaleOf(1200);
-    assert.ok(s.ratio > 6.8 && s.ratio < 6.9);
-    assert.ok(s.foot > 175, 'a 40 ft giant has a foot longer than the player is tall');
-    const t = scaleText({ name: 'Ada', height_cm: 1200, size_class: 3 });
-    assert.match(t, /Ada is 12\.0 m \(39 ft 4 in\) tall \(size class 3, Colossal/);
-    assert.match(t, /her foot is longer than you are tall/);
-    assert.match(sizeLine({ height_cm: 457, size_class: 2 }), /Towering \(2\) · 15 ft · 2\.6× you/);
+test('heights sit inside their class', () => {
+    for (let n = 1; n <= 6; n++) for (const r of [0, 0.5, 0.99]) assert.equal(classForHeight(heightFor(n, r)), n);
 });
 
-test('rollCast is seeded and never all class 1 for a real cast', () => {
-    let a = 0.05; const rng = () => (a = (a + 0.17) % 1);
-    const cast = rollCast(5, rng);
-    assert.equal(cast.length, 5);
-    assert.ok(cast.some((n) => n >= 2));
+test('scale against a 3 ft man', () => {
+    const s = scaleOf(366, PLAYER_CM); // 12 ft class 1
+    assert.equal(s.cls, 1);
+    assert.ok(s.ratio > 4 && s.ratio < 4.1);
+    assert.equal(s.things[0].name, 'a stair step');
+    assert.ok(Math.abs(s.things[0].cm - 36.6) < 0.1); // her step: 17 cm * 2.15
+    assert.equal(vsYou(36.6), 'up to your waist');
+    assert.equal(vsYou(900), '9.9× your height');
+});
+
+test('scale text is concrete and in both units', () => {
+    const t = scaleText({ name: 'Mara', size_class: 3, height_cm: 950 }, PLAYER_CM);
+    assert.match(t, /Mara: 9\.5 m \(31 ft 2 in\) tall, size class 3 \(Colossal/);
+    assert.match(t, /10\.4× your height/);
+    assert.match(t, /her foot is longer than you are tall; she can lift you in one hand/);
+    assert.match(t, /Her stair step is/);
+    assert.match(sizeLine({ name: 'Mara', size_class: 3, height_cm: 950 }), /^Colossal \(3\) · 31 ft 2 in · 10\.4× you$/);
+});
+
+test('player text describes the common world at his size', () => {
+    const t = playerText(91);
+    assert.match(t, /You are 91 cm \(3 ft\) tall/);
+    assert.match(t, /a coin is/);
 });

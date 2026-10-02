@@ -1,185 +1,129 @@
-// The character sheet: the same shape for the character card you are chatting with and for every
-// resident the world generator invents. The dials are mechanics (see rules.js), not flavour.
+// The player sheet: a small man's stats, money, items and conditions. Pure data and pure functions so
+// the panel, the prompt and the tag handler all work from the same shape.
 
-import { extractJson, list, num, slug, str } from './json.js';
-import { PLAYER_CM, classForHeight, classOf, heightFor, rollClass, scaleText } from './size.js';
+import { ATTRS } from './dice.js';
+import { num, slug, str } from './json.js';
+import { PLAYER_CM } from './size.js';
 
-/** Four attitudes. The key is what the sheet stores; `line` is what the model is told it means. */
-export const ARCHETYPES = {
-    Princess: { line: 'spoiled and entitled; expects to be admired and served; punishes with contempt and makes you grovel' },
-    Slacker: { line: 'easy-going and lazy; lets things slide and barely notices you, until you touch what is hers' },
-    Drill: { line: 'strict and demanding; gives orders, rewards obedience with rough affection, punishes sloppiness hard' },
-    Viper: { line: 'cruel for fun; humiliates and bullies, lies sweetly, the most dangerous to be small around' },
-};
-export const ARCHETYPE_NAMES = Object.keys(ARCHETYPES);
-
-export const DIALS = ['bossy', 'bratty', 'friendly', 'smelly', 'sweaty', 'dirty'];
-export const DIAL_MAX = 11;
-export const ODOR = ['cheesy', 'lemony', 'fishy', 'meaty'];
-export const VERBS = ['kiss', 'sniff', 'lick', 'rub', 'talk'];
-export const EXPRESSIONS = ['neutral', 'smug', 'annoyed', 'laughing', 'bored', 'disgusted'];
-export const SLOTS = ['morning', 'afternoon', 'evening', 'night'];
-
-const SHAPE = `{
-  "name": "full name",
-  "age": 21,
-  "from": "country or town",
-  "shoe_us": 8,
-  "archetype": "Princess | Slacker | Drill | Viper",
-  "dials": { "bossy": 0-11, "bratty": 0-11, "friendly": 0-11, "smelly": 0-11, "sweaty": 0-11, "dirty": 0-11 },
-  "odor": { "cheesy": 40, "lemony": 30, "fishy": 10, "meaty": 20 },
-  "shoes": "her usual shoes, with wear and condition",
-  "socks": "her usual socks: colour, pattern, length, condition",
-  "look": "hair, skin, build, face, and the outfit she is usually seen in (one line, for drawing her)",
-  "hook": "one line that makes her who she is",
-  "job": "what she does in town (student, sorority president, barista, coach...)",
-  "hobby": "two or three hobbies",
-  "kink": "what she gets out of having someone at her feet",
-  "quirk": "a verbal or physical tic",
-  "voice": "how she talks: register, favourite words, how she says no",
-  "wants": { "verbs": ["rub", "sniff"], "hates": ["lick"], "praise": "what to compliment", "trigger": "what sets her off" }
-}`;
-
-export const SHEET_RULES = `You write a game character sheet for a giantess foot-fetish comedy RPG in the style of 2000s flash games: bratty, bossy, smelly-socked giant women in a town built to their scale, and a normal-sized human player who comes up to their ankle or knee, played for laughs and humiliation, never romance-novel sincerity. The sheet is JSON only.
-
-Rules:
-- Keep everything that is already known about the character (name, age, looks, personality, history, way of speaking). Invent only what is missing, in character.
-- Her SIZE is given to you below and is not yours to change: write her as a giant of that height, used to looking down at normal-sized people, with everything she owns at her scale.
-- Dials are 0-11. 11 is extreme. Spread them: a character is not 11 at everything. "smelly" is how strong her foot smell is; "sweaty" how damp her socks get; "dirty" how grimy her soles are; "bossy" how many orders she gives; "bratty" how fast she gets irritated; "friendly" how safe it is to be small near her.
-- odor percentages add up to 100.
-- wants.verbs and wants.hates are from: kiss, sniff, lick, rub, talk.
-- Concrete, visual words. No code fence, no commentary: the JSON object only.`;
-
-/**
- * Messages that derive a sheet from a character card.
- * @param {object} o
- * @param {{name: string, description?: string, personality?: string, scenario?: string, first_mes?: string, mes_example?: string}} o.card
- * @param {string} [o.persona] the user's persona
- * @param {string} o.user the user's name
- * @param {string} [o.extra] the player's own notes ("make her a Viper", "she works at the gym")
- */
-export function buildSheetMessages({ card, persona = '', user, extra = '', size = null }) {
-    const parts = [`CHARACTER: ${card.name}`];
-    if (size) parts.push(`SIZE (fixed): ${scaleText({ name: card.name, height_cm: size.height_cm, size_class: size.size_class }, PLAYER_CM)}`);
-    if (card.description) parts.push(`Description:\n${str(card.description, 6000)}`);
-    if (card.personality) parts.push(`Personality:\n${str(card.personality, 2000)}`);
-    if (card.scenario) parts.push(`Scenario:\n${str(card.scenario, 2000)}`);
-    if (card.first_mes) parts.push(`Opening message (for voice and setting):\n${str(card.first_mes, 2500)}`);
-    if (card.mes_example) parts.push(`Example dialogue:\n${str(card.mes_example, 2000)}`);
-    if (persona) parts.push(`THE PLAYER (${user}):\n${str(persona, 2000)}`);
-    if (extra) parts.push(`PLAYER'S NOTES: ${str(extra, 1000)}`);
-    parts.push(`Write ${card.name}'s sheet. Shape (replace every value):\n${SHAPE}`);
-    return [
-        { role: 'system', content: SHEET_RULES },
-        { role: 'user', content: parts.join('\n\n') },
-    ];
-}
-
-const clampDial = (v, dflt = 5) => Math.round(num(v, 0, DIAL_MAX, dflt));
-
-/** Percentages that add up to 100, from whatever the model sent. */
-export function normalizeOdor(raw) {
-    const vals = ODOR.map((k) => Math.max(0, Number(raw?.[k]) || 0));
-    let total = vals.reduce((a, b) => a + b, 0);
-    if (!total) return { cheesy: 40, lemony: 30, fishy: 10, meaty: 20 };
-    const out = {};
-    let acc = 0;
-    ODOR.forEach((k, i) => { out[k] = i === ODOR.length - 1 ? 100 - acc : Math.round((vals[i] / total) * 100); acc += out[k]; });
-    return out;
-}
-
-const pickArchetype = (v) => {
-    const s = str(v, 40).toLowerCase();
-    if (!s) return null;
-    return ARCHETYPE_NAMES.find((a) => a.toLowerCase() === s) ?? (/stuck|princess|spoil/.test(s) ? 'Princess' : /chill|slack|lazy/.test(s) ? 'Slacker' : /tough|drill|strict/.test(s) ? 'Drill' : /wick|viper|cruel|evil/.test(s) ? 'Viper' : null);
+export const METERS = ['health', 'stamina', 'nerve'];
+export const METER_HELP = {
+    health: 'bruises, cuts, being stepped on; 0 is out cold or worse',
+    stamina: 'climbing, running, hanging on; 0 is collapse',
+    nerve: 'the will to stay calm under a giant; 0 is panic or freezing up',
 };
 
-const verbList = (v) => list(v, 5).map((x) => x.toLowerCase()).filter((x) => VERBS.includes(x));
+export const XP_PER_LEVEL = 100;
+export const levelFor = (xp) => 1 + Math.floor(Math.max(0, Number(xp) || 0) / XP_PER_LEVEL);
 
-/**
- * A valid sheet from a model reply (or a saved one). Missing parts get sane defaults.
- * @param {object|string} raw the parsed object or the reply text
- * @param {{id?: string, name?: string, card?: boolean, avatar?: string, seed?: number}} [meta]
- */
-export function normalizeSheet(raw, meta = {}) {
-    const r = (typeof raw === 'string' ? extractJson(raw) : raw) ?? {};
-    const name = str(r.name, 60) || meta.name || 'Unnamed';
-    const dials = {};
-    for (const d of DIALS) dials[d] = clampDial(r.dials?.[d] ?? r[d], d === 'friendly' ? 4 : 6);
-    const wants = r.wants ?? {};
-    const verbs = verbList(wants.verbs);
-    const hates = verbList(wants.hates).filter((v) => !verbs.includes(v));
-    // Size: what the extension rolled (meta) wins; else a giant height the model gave; else roll from the seed.
-    const seedR = ((meta.seed ?? name.length) * 9301 + 49297) % 233280 / 233280;
-    let size_class = meta.size_class ?? r.size_class ?? null;
-    let height_cm = meta.height_cm ?? (Number(r.height_cm) >= 300 ? Math.round(Number(r.height_cm)) : null);
-    if (!size_class && height_cm) size_class = classForHeight(height_cm);
-    if (!size_class) size_class = rollClass(seedR);
-    size_class = classOf(size_class).n;
-    if (!height_cm || classForHeight(height_cm) !== size_class) height_cm = heightFor(size_class, (seedR * 7) % 1);
-    const rawSchedule = r.schedule && typeof r.schedule === 'object' ? r.schedule : {};
-    const schedule = {};
-    for (const s of SLOTS) if (rawSchedule[s]) schedule[s] = slug(rawSchedule[s]);
+export function createSheet({ name = 'You', heightCm = PLAYER_CM, money = 20, currency = '$' } = {}) {
     return {
-        id: meta.id || slug(name),
-        name,
-        card: Boolean(meta.card ?? r.card),
-        avatar: meta.avatar ?? r.avatar ?? '',
-        age: Math.round(num(r.age, 18, 99, 21)),
-        from: str(r.from, 60),
-        size_class,
-        height_cm,
-        shoe_us: num(r.shoe_us, 4, 16, 8),
-        archetype: pickArchetype(r.archetype) ?? ARCHETYPE_NAMES[(meta.seed ?? name.length) % ARCHETYPE_NAMES.length],
-        dials,
-        odor: normalizeOdor(r.odor),
-        shoes: str(r.shoes, 160) || 'worn sneakers',
-        socks: str(r.socks, 160) || 'white ankle socks, not fresh',
-        look: str(r.look, 400),
-        hook: str(r.hook, 240),
-        job: str(r.job, 80),
-        hobby: str(r.hobby, 120),
-        kink: str(r.kink, 120),
-        quirk: str(r.quirk, 120),
-        voice: str(r.voice, 240),
-        wants: {
-            verbs: verbs.length ? verbs : ['rub'],
-            hates: hates.length ? hates : [],
-            praise: str(wants.praise, 100),
-            trigger: str(wants.trigger, 120),
-        },
-        home: r.home ? slug(r.home) : '',
-        schedule,
-        sprites: r.sprites && typeof r.sprites === 'object' ? r.sprites : {}, // expression -> image path
-        feet: r.feet && typeof r.feet === 'object' ? r.feet : {}, // 'shoes' | 'socks' | 'bare' -> image path
+        name: str(name, 60) || 'You',
+        height_cm: num(heightCm, 30, 300, PLAYER_CM),
+        meters: Object.fromEntries(METERS.map((m) => [m, { cur: 10, max: 10 }])),
+        attrs: Object.fromEntries(ATTRS.map((a) => [a, 2])),
+        points: 0, // unspent attribute points from levelling
+        xp: 0,
+        money: num(money, 0, 1e9, 20),
+        currency: str(currency, 8) || '$',
+        items: [], // {id, name, qty, note}
+        conditions: [], // short words: soaked, hidden, bruised, carried
+        notes: [], // things the player wants remembered, one line each
+        clock: '', // free text: "Day 2, late evening"
+        place: '', // free text: "Mara's kitchen, under the table"
     };
 }
 
-/** "mostly cheesy with a lemony edge" */
-export function odorText(odor) {
-    const sorted = ODOR.map((k) => [k, odor?.[k] ?? 0]).sort((a, b) => b[1] - a[1]);
-    const [a, b] = sorted;
-    if (a[1] >= 70) return `overwhelmingly ${a[0]}`;
-    if (a[1] >= 45) return `mostly ${a[0]} with a ${b[0]} edge`;
-    return `${a[0]} and ${b[0]} in equal measure`;
+/** Bring a stored sheet up to the current shape. */
+export function normalizeSheet(raw) {
+    const s = createSheet({ name: raw?.name, heightCm: raw?.height_cm, money: raw?.money, currency: raw?.currency });
+    for (const m of METERS) {
+        const v = raw?.meters?.[m] ?? {};
+        s.meters[m].max = num(v.max, 1, 999, 10);
+        s.meters[m].cur = num(v.cur, 0, s.meters[m].max, s.meters[m].max);
+    }
+    for (const a of ATTRS) s.attrs[a] = num(raw?.attrs?.[a], 0, 9, 2);
+    s.points = num(raw?.points, 0, 99, 0);
+    s.xp = num(raw?.xp, 0, 1e7, 0);
+    s.items = (Array.isArray(raw?.items) ? raw.items : []).map(normalizeItem).filter(Boolean).slice(0, 60);
+    s.conditions = [...new Set((Array.isArray(raw?.conditions) ? raw.conditions : []).map((c) => str(c, 30).toLowerCase()).filter(Boolean))].slice(0, 12);
+    s.notes = (Array.isArray(raw?.notes) ? raw.notes : []).map((n) => str(n, 200)).filter(Boolean).slice(0, 30);
+    s.clock = str(raw?.clock, 60);
+    s.place = str(raw?.place, 120);
+    return s;
 }
 
-/** The sheet as a compact paragraph for the prompt. */
-export function sheetSummary(s, { dials = true, playerCm = PLAYER_CM } = {}) {
-    const d = s.dials;
-    const bits = [`${s.name}${s.age ? `, ${s.age}` : ''}${s.from ? `, from ${s.from}` : ''}${s.job ? `, ${s.job}` : ''} — ${s.archetype}: ${ARCHETYPES[s.archetype].line}.`];
-    if (s.hook) bits.push(s.hook);
-    bits.push(scaleText(s, playerCm));
-    if (dials) bits.push(`Dials (0-11): bossy ${d.bossy}, bratty ${d.bratty}, friendly ${d.friendly}, smelly ${d.smelly}, sweaty ${d.sweaty}, dirty ${d.dirty}.`);
-    bits.push(`Feet: ${s.shoes}; ${s.socks}; the smell is ${odorText(s.odor)} (cheesy ${s.odor.cheesy}%, lemony ${s.odor.lemony}%, fishy ${s.odor.fishy}%, meaty ${s.odor.meaty}%).`);
-    if (s.look) bits.push(`Looks: ${s.look}.`);
-    if (s.voice) bits.push(`Voice: ${s.voice}.`);
-    if (s.quirk) bits.push(`Quirk: ${s.quirk}.`);
-    if (s.kink) bits.push(`What she gets out of it: ${s.kink}.`);
-    const w = s.wants;
-    bits.push(`Likes: ${w.verbs.join(', ')}${w.hates.length ? `; hates: ${w.hates.join(', ')}` : ''}${w.praise ? `; compliment ${w.praise}` : ''}${w.trigger ? `; sets her off: ${w.trigger}` : ''}.`);
-    return bits.join(' ');
+export function normalizeItem(raw) {
+    const name = str(typeof raw === 'string' ? raw : raw?.name, 60);
+    if (!name) return null;
+    return { id: slug(name), name, qty: num(raw?.qty, 1, 9999, 1), note: str(raw?.note, 120) };
 }
 
-/** One line per resident for a list. */
-export const sheetLine = (s) => `${s.name} (${s.archetype}${s.job ? `, ${s.job}` : ''}, class ${s.size_class} ${classOf(s.size_class).name}, ${Math.round(s.height_cm / 30.48)} ft) — ${s.shoes}; ${s.socks}`;
+export const findItem = (sheet, name) => {
+    const id = slug(name);
+    return sheet.items.find((i) => i.id === id) ?? sheet.items.find((i) => i.id.startsWith(id) || i.name.toLowerCase().includes(String(name).toLowerCase()));
+};
+
+/** Add (qty > 0) or remove (qty < 0) an item; removing more than held drops it. Returns the item or null. */
+export function changeItem(sheet, name, qty = 1, note = '') {
+    const item = normalizeItem({ name, qty: Math.abs(qty) || 1, note });
+    if (!item) return null;
+    const have = findItem(sheet, item.name);
+    if (qty < 0) {
+        if (!have) return null;
+        have.qty -= Math.abs(qty);
+        if (have.qty <= 0) sheet.items = sheet.items.filter((i) => i !== have);
+        return have;
+    }
+    if (have) { have.qty += item.qty; if (note) have.note = item.note; return have; }
+    sheet.items.push(item);
+    return item;
+}
+
+export function setCondition(sheet, name, on = true) {
+    const c = str(name, 30).toLowerCase();
+    if (!c) return;
+    sheet.conditions = sheet.conditions.filter((x) => x !== c);
+    if (on) sheet.conditions.push(c);
+}
+
+/** Change a meter by delta (clamped). Returns the new value. */
+export function changeMeter(sheet, meter, delta) {
+    const m = sheet.meters[meter];
+    if (!m) return null;
+    m.cur = num(m.cur + (Number(delta) || 0), 0, m.max, m.cur);
+    return m.cur;
+}
+
+/** Add xp; returns the number of levels gained (attribute points are granted). */
+export function addXp(sheet, amount) {
+    const before = levelFor(sheet.xp);
+    sheet.xp = num(sheet.xp + (Number(amount) || 0), 0, 1e7, sheet.xp);
+    const gained = levelFor(sheet.xp) - before;
+    if (gained > 0) sheet.points += gained;
+    return gained;
+}
+
+/** Spend an unspent point on an attribute. */
+export function spendPoint(sheet, attr) {
+    if (!ATTRS.includes(attr) || sheet.points <= 0 || sheet.attrs[attr] >= 9) return false;
+    sheet.attrs[attr] += 1;
+    sheet.points -= 1;
+    return true;
+}
+
+export const moneyText = (sheet) => `${sheet.currency}${Number(sheet.money).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+
+/** The sheet for the prompt: a few lines. */
+export function sheetText(sheet) {
+    const meters = METERS.map((m) => `${m} ${sheet.meters[m].cur}/${sheet.meters[m].max}`).join(', ');
+    const attrs = ATTRS.map((a) => `${a} ${sheet.attrs[a]}`).join(', ');
+    const items = sheet.items.length ? sheet.items.map((i) => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}${i.note ? ` (${i.note})` : ''}`).join('; ') : 'nothing but the clothes on your back';
+    const lines = [
+        `${sheet.name}, level ${levelFor(sheet.xp)} (${sheet.xp} xp). ${meters}. ${attrs}.`,
+        `Money: ${moneyText(sheet)}. Carrying: ${items}.`,
+    ];
+    if (sheet.conditions.length) lines.push(`Conditions: ${sheet.conditions.join(', ')}.`);
+    if (sheet.clock || sheet.place) lines.push([sheet.clock && `Time: ${sheet.clock}.`, sheet.place && `Where: ${sheet.place}.`].filter(Boolean).join(' '));
+    if (sheet.notes.length) lines.push(`Notes: ${sheet.notes.join(' | ')}`);
+    return lines.join('\n');
+}

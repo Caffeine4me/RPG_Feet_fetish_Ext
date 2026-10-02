@@ -1,11 +1,11 @@
 {
-    "name": "st-sole-survivor",
-    "version": "0.1.0",
+    "name": "st-smallfolk",
+    "version": "0.2.0",
     "private": true,
-    "description": "SillyTavern extension: a living-world foot-fetish RPG built around the character card you are chatting with: a pixel town to explore, visual-novel scenes, auto-generated sprites.",
+    "description": "SillyTavern extension: play a three-foot-tall man in a world of giants. Stats, money, items, conditions and a roster of giants with their sizes, kept by the extension and fed to the model every turn.",
     "type": "module",
     "scripts": {
-        "test": "node --test"
+        "test": "node --test test/*.test.js"
     },
     "license": "MIT"
 }

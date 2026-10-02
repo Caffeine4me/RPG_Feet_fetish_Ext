@@ -1,48 +1,48 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSheetMessages, normalizeOdor, normalizeSheet, odorText, sheetSummary } from '../src/sheet.js';
+import { addXp, changeItem, changeMeter, createSheet, levelFor, normalizeSheet, setCondition, sheetText, spendPoint } from '../src/sheet.js';
 
-test('a sheet from a messy reply gets defaults and clamps', () => {
-    const s = normalizeSheet('Here:\n```json\n{"name":"Marisol Reyes","age":"21","archetype":"stuck up","dials":{"bossy":15,"bratty":"10","friendly":-2},"odor":{"cheesy":5,"lemony":5},"wants":{"verbs":["Rub","sniff","dance"],"hates":["rub","lick"]},"schedule":{"morning":"Tennis Court"}}\n```', { card: true, avatar: 'm.png' });
-    assert.equal(s.id, 'marisol_reyes');
-    assert.equal(s.archetype, 'Princess');
-    assert.equal(s.dials.bossy, 11);
-    assert.equal(s.dials.bratty, 10);
-    assert.equal(s.dials.friendly, 0);
-    assert.equal(s.dials.smelly, 6);
-    assert.deepEqual(s.odor, { cheesy: 50, lemony: 50, fishy: 0, meaty: 0 });
-    assert.deepEqual(s.wants.verbs, ['rub', 'sniff']);
-    assert.deepEqual(s.wants.hates, ['lick']);
-    assert.equal(s.schedule.morning, 'tennis_court');
-    assert.ok(s.card && s.avatar === 'm.png');
+test('a fresh sheet', () => {
+    const s = createSheet({ name: 'Tom' });
+    assert.equal(s.height_cm, 91);
+    assert.deepEqual(s.meters.health, { cur: 10, max: 10 });
+    assert.equal(s.money, 20);
+    assert.match(sheetText(s), /Tom, level 1 \(0 xp\)\. health 10\/10/);
+    assert.match(sheetText(s), /nothing but the clothes/);
 });
 
-test('odor normalises to 100 and reads naturally', () => {
-    assert.deepEqual(normalizeOdor({ cheesy: 3, lemony: 1, fishy: 0, meaty: 0 }), { cheesy: 75, lemony: 25, fishy: 0, meaty: 0 });
-    assert.equal(odorText({ cheesy: 75, lemony: 25 }), 'overwhelmingly cheesy');
-    assert.equal(odorText({ cheesy: 50, lemony: 30, fishy: 10, meaty: 10 }), 'mostly cheesy with a lemony edge');
+test('meters clamp, items stack and vanish, conditions toggle', () => {
+    const s = createSheet();
+    assert.equal(changeMeter(s, 'health', -13), 0);
+    assert.equal(changeMeter(s, 'health', +99), 10);
+    changeItem(s, 'Brass Key', 1, 'opens her pantry');
+    changeItem(s, 'coin', 3);
+    changeItem(s, 'brass key', 1);
+    assert.equal(s.items.find((i) => i.id === 'brass_key').qty, 2);
+    changeItem(s, 'coin', -5);
+    assert.equal(s.items.some((i) => i.id === 'coin'), false);
+    setCondition(s, 'Soaked'); setCondition(s, 'soaked'); setCondition(s, 'hidden');
+    assert.deepEqual(s.conditions, ['soaked', 'hidden']);
+    setCondition(s, 'soaked', false);
+    assert.deepEqual(s.conditions, ['hidden']);
+    assert.match(sheetText(s), /Brass Key ×2 \(opens her pantry\)/);
 });
 
-test('the summary and the prompt carry the card', () => {
-    const s = normalizeSheet({ name: 'Ada', archetype: 'Viper', shoes: 'cowgirl boots', socks: 'black socks with holes', hook: 'Spits on the world.' });
-    const text = sheetSummary(s);
-    assert.match(text, /Ada.*Viper/);
-    assert.match(text, /cowgirl boots/);
-    const m = buildSheetMessages({ card: { name: 'Ada', description: 'A goth girl.' }, user: 'Tom', persona: 'A short guy.' });
-    assert.equal(m.length, 2);
-    assert.match(m[1].content, /CHARACTER: Ada/);
-    assert.match(m[1].content, /THE PLAYER \(Tom\)/);
+test('xp levels and points', () => {
+    const s = createSheet();
+    assert.equal(levelFor(250), 3);
+    assert.equal(addXp(s, 210), 2);
+    assert.equal(s.points, 2);
+    assert.equal(spendPoint(s, 'wits'), true);
+    assert.equal(s.attrs.wits, 3);
+    assert.equal(spendPoint(s, 'nope'), false);
 });
 
-test('size: the rolled class wins, a giant height maps to a class, and the prompt carries it', () => {
-    const a = normalizeSheet({ name: 'Ada' }, { size_class: 4, height_cm: 1500 });
-    assert.equal(a.size_class, 4);
-    assert.equal(a.height_cm, 1500);
-    const b = normalizeSheet({ name: 'Bo', height_cm: 2900 });
-    assert.equal(b.size_class, 6);
-    const c = normalizeSheet({ name: 'Cy', height_cm: 170 }); // a normal height: the sheet rolls a class instead
-    assert.ok(c.size_class >= 1 && c.size_class <= 6 && c.height_cm >= 305);
-    assert.match(sheetSummary(a), /size class 4, Titanic/);
-    const m = buildSheetMessages({ card: { name: 'Ada' }, user: 'Tom', size: { size_class: 4, height_cm: 1500 } });
-    assert.match(m[1].content, /SIZE \(fixed\): Ada is 15\.0 m/);
+test('normalize repairs an old or broken sheet', () => {
+    const s = normalizeSheet({ name: 'Tom', meters: { health: { cur: 50, max: 12 } }, attrs: { might: 7 }, items: ['rope', { name: 'coin', qty: 2 }, {}], conditions: ['Wet', 'wet'] });
+    assert.deepEqual(s.meters.health, { cur: 12, max: 12 });
+    assert.deepEqual(s.meters.nerve, { cur: 10, max: 10 });
+    assert.equal(s.attrs.might, 7);
+    assert.equal(s.items.length, 2);
+    assert.deepEqual(s.conditions, ['wet']);
 });
