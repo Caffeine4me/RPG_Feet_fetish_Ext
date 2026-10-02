@@ -55,6 +55,23 @@ it goes into SillyTavern's secret store. Everything else works without pictures.
 - ↶ **Rewind** undoes the last game step (the chat message stays; swipe or send something new).
 - Slash: `/sole new`, `/sole go gym`, `/sole wait`, `/sole sleep`, `/sole look`, `/sole sniff [name]`, `/sole picture`, `/sole rewind`.
 
+## SillyTavern settings that matter
+
+The extension's settings drawer has a **SillyTavern check** with a Fix button for each of these.
+
+| User Setting | Set it to | Why |
+| --- | --- | --- |
+| Relax message trim in Groups | on (group chats) | Otherwise SillyTavern cuts a reply where another member's name appears, and a scene with two girls talking loses its second half. |
+| Auto-scroll Chat | on | The choices sit at the end of the newest message. |
+| Collapse Consecutive Newlines | off | Blank lines separate narration, dialogue and the `[CHOICES]` block. |
+| Chat Width | 50 or less | Leaves room for the game window beside the chat. |
+| Forbid External Media | either | Sprites and backgrounds are saved inside your SillyTavern, so they are not external. |
+| Streaming | either | The game reads the reply once it is complete. |
+
+Choices also appear as buttons inside the chat message itself, with `Name [expression]:` lines given a
+coloured nameplate, so the game is playable with the window closed. A **Connection Profile** for
+"building and bookkeeping" (a fast, cheap model) keeps the after-reply bookkeeping off your main model.
+
 ## Settings
 
 | Setting | What it does |
@@ -66,6 +83,7 @@ it goes into SillyTavern's secret store. Everything else works without pictures.
 | Your moves | Send at once, or put in the message box to edit first |
 | Brief position / depth / role | Where the game state is injected |
 | Pictures | Source, model, resolution, key; auto sprites and auto backgrounds |
+| Choices in the chat / Auto-open | Buttons inside the message; open the window when a chat with a game opens |
 
 ## Development
 

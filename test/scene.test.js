@@ -76,3 +76,11 @@ test('verbOf', () => {
     assert.equal(verbOf('I wash the sneakers'), 'chore');
     assert.equal(verbOf('Hello'), null);
 });
+
+test('the brief tells group members who are absent to stay out', async () => {
+    const { runChecks } = await import('../src/chatview.js');
+    const r = runChecks({ disable_group_trimming: false, auto_scroll_chat_to_bottom: true, collapse_newlines: false, forbid_external_media: true }, { inGroup: true });
+    assert.equal(r.find((x) => x.key === 'disable_group_trimming').ok, false);
+    assert.equal(runChecks({ disable_group_trimming: false }, { inGroup: false }).find((x) => x.key === 'disable_group_trimming').ok, true);
+    assert.equal(r.find((x) => x.key === 'forbid_external_media').ok, true);
+});

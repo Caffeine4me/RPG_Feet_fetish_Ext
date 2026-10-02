@@ -96,3 +96,21 @@
     .ss-card { flex-direction: column; }
     .ss-tab { padding: 4px 6px; }
 }
+
+/* inside the chat */
+.ss-inline-choices { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.2); }
+.ss-inline-choice { margin: 0; width: 100%; text-align: left; justify-content: flex-start; height: auto; padding: 5px 10px; white-space: normal; font-size: 0.95em; }
+.ss-inline-choice:disabled { opacity: 0.45; cursor: default; }
+.ss-chip { display: inline-block; margin: 2px 0; padding: 0 8px; border-radius: 10px; font-size: 0.8em; background: rgba(255,210,63,0.18); border: 1px solid rgba(255,210,63,0.5); }
+.ss-chip-quest { background: rgba(120,200,120,0.18); border-color: rgba(120,200,120,0.5); }
+.ss-nameplate-inline { display: inline-block; padding: 0 7px; border-radius: 5px; font-weight: bold; background: #c96; color: #000; margin-right: 2px; }
+.ss-nameplate-inline.ss-expr-smug { background: #d9a441; }
+.ss-nameplate-inline.ss-expr-annoyed, .ss-nameplate-inline.ss-expr-disgusted { background: #d96c6c; }
+.ss-nameplate-inline.ss-expr-laughing { background: #8fd36c; }
+.ss-nameplate-inline.ss-expr-bored { background: #9aa4b8; }
+.ss-checks { display: flex; flex-direction: column; gap: 4px; }
+.ss-check { display: flex; gap: 6px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+.ss-check-mark { font-weight: bold; }
+.ss-check.ss-ok .ss-check-mark { color: #7fd37f; }
+.ss-check.ss-bad .ss-check-mark { color: #ff8a8a; }
+.ss-fix { padding: 1px 8px; font-size: 11px; }

@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../style.css">
+<style>body{margin:0;background:#15171c;color:#eee;font-family:sans-serif;padding:20px} .mes{max-width:640px;background:#1f2228;border-radius:8px;padding:12px} .menu_button{background:#333;color:#eee;border:1px solid #555;border-radius:6px;cursor:pointer} p{margin:0 0 8px}</style></head>
+<body><div id="chat"><div class="mes" mesid="3"><div class="mes_text">
+<p><em>The gym smells of rubber and worse. Marisol has her sneakers off, feet up on the bench.</em></p>
+<p>Marisol [smug]: "Oh. It's you. Hold this."<br>Bea [annoyed]: "Don't just stand there breathing on her."</p>
+<p>[QUEST bag]</p><p>[EVENT service_row]</p>
+<p>[CHOICES]</p>
+<ol><li>(Sniff check) I lean in and breathe in her socks.</li><li>I offer to carry her gym bag.</li><li>(Talk check) I ask about the laundromat.</li><li>I leave.</li></ol>
+</div></div></div>
+<script type="module">
+import { decorateMessage } from '../src/chatview.js';
+import { parseReply } from '../src/scene.js';
+const raw = `*The gym smells of rubber and worse. Marisol has her sneakers off, feet up on the bench.*
+Marisol [smug]: "Oh. It's you. Hold this."
+Bea [annoyed]: "Don't just stand there breathing on her."
+[QUEST bag]
+[EVENT service_row]
+[CHOICES]
+1. (Sniff check) I lean in and breathe in her socks.
+2. I offer to carry her gym bag.
+3. (Talk check) I ask about the laundromat.
+4. I leave.`;
+decorateMessage(document.querySelector('.mes_text'), parseReply(raw), { live: true, onChoice: (c) => alert(c.text) });
+</script></body></html>

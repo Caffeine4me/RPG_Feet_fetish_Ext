@@ -11,6 +11,7 @@ import { buildBrief, buildReconcileMessages, choiceMessage, parseReconcile, pars
 import { DEFAULT_MODELS, PICTURE_SOURCES, failureText, modelsRequest, pictureRequest, readModels, readPicture } from './src/picture.js';
 import { FEET_KINDS, SHEET_COLS, SHEET_ROWS, backgroundPrompt, badEndPrompt, cellRects, eventPrompt, feetCardPrompt, keyOut, opaqueBounds, spriteSheetPrompt } from './src/sprites.js';
 import { Panel } from './src/panel.js';
+import { ST_CHECKS, decorateMessage, runChecks } from './src/chatview.js';
 
 const NAME = 'soleSurvivor';
 const META_KEY = 'sole_survivor';
@@ -31,6 +32,8 @@ const DEFAULTS = {
     injectPosition: 1, injectDepth: 1, injectRole: 0,
     pictureSource: 'gemini', pictureModel: '', customUrl: '', resolution: '',
     autoSprites: true, autoBackgrounds: false,
+    inlineChoices: true, // choices as buttons inside the chat message
+    autoOpen: true, // open the game window when a chat with a game opens
     panel: { open: false },
 };
 
@@ -390,6 +393,7 @@ async function onMessageReceived(id, type) {
     for (const q of parsed.quests) if (questGiven(g.world, g.state, q)) log(`Quest given: ${q}`);
     if (panel) { panel.lineIndex = null; panel.showAll = false; }
     commit();
+    setTimeout(() => { decorate(id); if (id > 0) decorate(id - 1); }, 50);
     if (cfg().reconcile) await reconcile(m.mes);
     if (cfg().autoSprites) for (const s of present()) if (!s.sprites?.neutral && !spritesBusy.has(s.id)) makeSprites(s.id).catch(() => {});
     if (cfg().autoBackgrounds) { const here = findLocation(g.world, g.state.at); if (here && !view().backgroundUrl(here)) makeBackground(here.id).catch(() => {}); }
@@ -436,10 +440,32 @@ function onMessageChanged(id) {
     commit();
 }
 
+// ------------------------------------------------------------------ the chat made playable
+
+function decorate(id) {
+    const g = game();
+    const c = ctx();
+    const m = c.chat?.[id];
+    if (!g || !cfg().inlineChoices || !m || m.is_user || m.is_system || !m.mes) return;
+    const root = document.querySelector(`#chat .mes[mesid="${id}"] .mes_text`);
+    if (!root) return;
+    const last = c.chat.length - 1;
+    try { decorateMessage(root, parseReply(m.mes), { live: id === last, onChoice: (choice) => actions.onChoice(choice) }); } catch (err) { console.warn(LOG, 'Could not decorate a message', err); }
+}
+
+function decorateAll() {
+    const c = ctx();
+    if (!game() || !c.chat) return;
+    const from = Math.max(0, c.chat.length - 40);
+    for (let i = from; i < c.chat.length; i++) decorate(i);
+}
+
 function loadChat() {
     undo.length = 0;
     lastUserText = '';
     updateInjection();
+    if (game() && cfg().autoOpen && !(panel?.isOpen)) setPanelOpen(true);
+    setTimeout(decorateAll, 50);
     if (panel) { panel.setStatus(game() ? '' : hasChat() ? 'No game in this chat yet. Press ✨ New game.' : 'Open a chat first.'); panel.refresh(); }
 }
 
@@ -707,6 +733,8 @@ function settingsHtml() {
       <label class="checkbox_label"><input type="checkbox" data-key="lethal"> Bad ends can be lethal for a tiny</label>
       <h4>Play</h4>
       <label class="checkbox_label"><input type="checkbox" data-key="reconcile"> After each reply, ask the model what changed (favor, items, quests, new places)</label>
+      <label class="checkbox_label"><input type="checkbox" data-key="inlineChoices"> Show the choices as buttons inside the chat message (and style the dialogue lines)</label>
+      <label class="checkbox_label"><input type="checkbox" data-key="autoOpen"> Open the game window when a chat with a game opens</label>
       <div class="ss-row">
         <label>Your moves <select class="text_pole" data-key="sendMode">${options([['send', 'Send at once'], ['fill', 'Put in the message box to edit']], s.sendMode)}</select></label>
         <label class="checkbox_label"><input type="checkbox" data-key="asterisks"> Wrap actions in *asterisks*</label>
@@ -734,6 +762,9 @@ function settingsHtml() {
       <label class="checkbox_label"><input type="checkbox" data-key="autoSprites"> Make sprites for a character the first time she appears</label>
       <label class="checkbox_label"><input type="checkbox" data-key="autoBackgrounds"> Paint a place's background the first time you enter it</label>
       <small>Sprites are cut from a 3×2 expression sheet drawn from the card's avatar; feet cards and backgrounds are made from the Cast and Scene tabs.</small>
+      <h4>SillyTavern check</h4>
+      <div id="ss_checks" class="ss-checks"></div>
+      <small>These are SillyTavern's own User Settings. "Fix" flips the toggle the same way the settings page does. Keep Chat Width at 50 or less so the game window fits beside the chat.</small>
     </div>
   </div>
 </div>`;
@@ -768,6 +799,30 @@ function bindSettings(root) {
     fillProfiles(profile);
     profile.addEventListener('focus', () => fillProfiles(profile));
     root.querySelector('#ss_open').addEventListener('click', () => setPanelOpen(true));
+    const checks = root.querySelector('#ss_checks');
+    const renderChecks = () => {
+        const c = ctx();
+        checks.replaceChildren(...runChecks(c.powerUserSettings, { inGroup: Boolean(c.groupId) }).map((k) => {
+            const row = document.createElement('div');
+            row.className = `ss-check ${k.ok ? 'ss-ok' : 'ss-bad'}`;
+            row.innerHTML = `<span class="ss-check-mark">${k.info ? 'ℹ' : k.ok ? '✓' : '✗'}</span> <b>${k.label}</b>: ${k.info ? '' : `should be <b>${k.want ? 'on' : 'off'}</b>${k.groupOnly ? ' for group chats' : ''}; is ${k.value ? 'on' : 'off'}. `}<span class="ss-hint">${k.why}</span>`;
+            if (!k.ok) {
+                const fix = document.createElement('div');
+                fix.className = 'menu_button ss-fix';
+                fix.textContent = 'Fix';
+                fix.addEventListener('click', () => {
+                    const box = document.getElementById(k.key);
+                    if (box && box.type === 'checkbox') { box.checked = k.want; box.dispatchEvent(new Event('input', { bubbles: true })); box.dispatchEvent(new Event('change', { bubbles: true })); }
+                    else if (c.powerUserSettings) { c.powerUserSettings[k.key] = k.want; save(); }
+                    setTimeout(renderChecks, 100);
+                });
+                row.append(fix);
+            }
+            return row;
+        }));
+    };
+    renderChecks();
+    root.querySelector('.inline-drawer-toggle').addEventListener('click', () => setTimeout(renderChecks, 50));
     root.querySelector('#ss_key_save').addEventListener('click', async () => {
         const field = root.querySelector('#ss_key');
         const secret = PICTURE_SOURCES[cfg().pictureSource]?.secret;
@@ -809,6 +864,8 @@ function init() {
     eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
     eventSource.on(event_types.MESSAGE_SENT, onMessageSent);
     for (const ev of ['MESSAGE_SWIPED', 'MESSAGE_EDITED']) if (event_types[ev]) eventSource.on(event_types[ev], onMessageChanged);
+    for (const ev of ['CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MESSAGE_UPDATED']) if (event_types[ev]) eventSource.on(event_types[ev], (id) => setTimeout(() => { decorate(Number(id)); if (Number(id) > 0) decorate(Number(id) - 1); }, 30));
+    if (event_types.MORE_MESSAGES_LOADED) eventSource.on(event_types.MORE_MESSAGES_LOADED, () => setTimeout(decorateAll, 50));
     if (cfg().panel.open) setPanelOpen(true);
     loadChat();
     console.log(LOG, 'loaded');
