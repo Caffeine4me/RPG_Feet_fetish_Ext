@@ -1,0 +1,11 @@
+{
+    "name": "st-sole-survivor",
+    "version": "0.1.0",
+    "private": true,
+    "description": "SillyTavern extension: a living-world foot-fetish RPG built around the character card you are chatting with: a pixel town to explore, visual-novel scenes, auto-generated sprites.",
+    "type": "module",
+    "scripts": {
+        "test": "node --test"
+    },
+    "license": "MIT"
+}
