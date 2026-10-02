@@ -2,6 +2,7 @@
 // resident the world generator invents. The dials are mechanics (see rules.js), not flavour.
 
 import { extractJson, list, num, slug, str } from './json.js';
+import { PLAYER_CM, classForHeight, classOf, heightFor, rollClass, scaleText } from './size.js';
 
 /** Four attitudes. The key is what the sheet stores; `line` is what the model is told it means. */
 export const ARCHETYPES = {
@@ -23,7 +24,6 @@ const SHAPE = `{
   "name": "full name",
   "age": 21,
   "from": "country or town",
-  "height_cm": 170,
   "shoe_us": 8,
   "archetype": "Princess | Slacker | Drill | Viper",
   "dials": { "bossy": 0-11, "bratty": 0-11, "friendly": 0-11, "smelly": 0-11, "sweaty": 0-11, "dirty": 0-11 },
@@ -40,10 +40,11 @@ const SHAPE = `{
   "wants": { "verbs": ["rub", "sniff"], "hates": ["lick"], "praise": "what to compliment", "trigger": "what sets her off" }
 }`;
 
-export const SHEET_RULES = `You write a game character sheet for a foot-fetish comedy RPG in the style of 2000s flash games: bratty, bossy, smelly-socked girls, played for laughs and humiliation, never romance-novel sincerity. The sheet is JSON only.
+export const SHEET_RULES = `You write a game character sheet for a giantess foot-fetish comedy RPG in the style of 2000s flash games: bratty, bossy, smelly-socked giant women in a town built to their scale, and a normal-sized human player who comes up to their ankle or knee, played for laughs and humiliation, never romance-novel sincerity. The sheet is JSON only.
 
 Rules:
 - Keep everything that is already known about the character (name, age, looks, personality, history, way of speaking). Invent only what is missing, in character.
+- Her SIZE is given to you below and is not yours to change: write her as a giant of that height, used to looking down at normal-sized people, with everything she owns at her scale.
 - Dials are 0-11. 11 is extreme. Spread them: a character is not 11 at everything. "smelly" is how strong her foot smell is; "sweaty" how damp her socks get; "dirty" how grimy her soles are; "bossy" how many orders she gives; "bratty" how fast she gets irritated; "friendly" how safe it is to be small near her.
 - odor percentages add up to 100.
 - wants.verbs and wants.hates are from: kiss, sniff, lick, rub, talk.
@@ -57,8 +58,9 @@ Rules:
  * @param {string} o.user the user's name
  * @param {string} [o.extra] the player's own notes ("make her a Viper", "she works at the gym")
  */
-export function buildSheetMessages({ card, persona = '', user, extra = '' }) {
+export function buildSheetMessages({ card, persona = '', user, extra = '', size = null }) {
     const parts = [`CHARACTER: ${card.name}`];
+    if (size) parts.push(`SIZE (fixed): ${scaleText({ name: card.name, height_cm: size.height_cm, size_class: size.size_class }, PLAYER_CM)}`);
     if (card.description) parts.push(`Description:\n${str(card.description, 6000)}`);
     if (card.personality) parts.push(`Personality:\n${str(card.personality, 2000)}`);
     if (card.scenario) parts.push(`Scenario:\n${str(card.scenario, 2000)}`);
@@ -107,6 +109,14 @@ export function normalizeSheet(raw, meta = {}) {
     const wants = r.wants ?? {};
     const verbs = verbList(wants.verbs);
     const hates = verbList(wants.hates).filter((v) => !verbs.includes(v));
+    // Size: what the extension rolled (meta) wins; else a giant height the model gave; else roll from the seed.
+    const seedR = ((meta.seed ?? name.length) * 9301 + 49297) % 233280 / 233280;
+    let size_class = meta.size_class ?? r.size_class ?? null;
+    let height_cm = meta.height_cm ?? (Number(r.height_cm) >= 300 ? Math.round(Number(r.height_cm)) : null);
+    if (!size_class && height_cm) size_class = classForHeight(height_cm);
+    if (!size_class) size_class = rollClass(seedR);
+    size_class = classOf(size_class).n;
+    if (!height_cm || classForHeight(height_cm) !== size_class) height_cm = heightFor(size_class, (seedR * 7) % 1);
     const rawSchedule = r.schedule && typeof r.schedule === 'object' ? r.schedule : {};
     const schedule = {};
     for (const s of SLOTS) if (rawSchedule[s]) schedule[s] = slug(rawSchedule[s]);
@@ -117,7 +127,8 @@ export function normalizeSheet(raw, meta = {}) {
         avatar: meta.avatar ?? r.avatar ?? '',
         age: Math.round(num(r.age, 18, 99, 21)),
         from: str(r.from, 60),
-        height_cm: Math.round(num(r.height_cm, 120, 260, 168)),
+        size_class,
+        height_cm,
         shoe_us: num(r.shoe_us, 4, 16, 8),
         archetype: pickArchetype(r.archetype) ?? ARCHETYPE_NAMES[(meta.seed ?? name.length) % ARCHETYPE_NAMES.length],
         dials,
@@ -154,10 +165,11 @@ export function odorText(odor) {
 }
 
 /** The sheet as a compact paragraph for the prompt. */
-export function sheetSummary(s, { dials = true } = {}) {
+export function sheetSummary(s, { dials = true, playerCm = PLAYER_CM } = {}) {
     const d = s.dials;
     const bits = [`${s.name}${s.age ? `, ${s.age}` : ''}${s.from ? `, from ${s.from}` : ''}${s.job ? `, ${s.job}` : ''} — ${s.archetype}: ${ARCHETYPES[s.archetype].line}.`];
     if (s.hook) bits.push(s.hook);
+    bits.push(scaleText(s, playerCm));
     if (dials) bits.push(`Dials (0-11): bossy ${d.bossy}, bratty ${d.bratty}, friendly ${d.friendly}, smelly ${d.smelly}, sweaty ${d.sweaty}, dirty ${d.dirty}.`);
     bits.push(`Feet: ${s.shoes}; ${s.socks}; the smell is ${odorText(s.odor)} (cheesy ${s.odor.cheesy}%, lemony ${s.odor.lemony}%, fishy ${s.odor.fishy}%, meaty ${s.odor.meaty}%).`);
     if (s.look) bits.push(`Looks: ${s.look}.`);
@@ -170,4 +182,4 @@ export function sheetSummary(s, { dials = true } = {}) {
 }
 
 /** One line per resident for a list. */
-export const sheetLine = (s) => `${s.name} (${s.archetype}${s.job ? `, ${s.job}` : ''}) — ${s.shoes}; ${s.socks}`;
+export const sheetLine = (s) => `${s.name} (${s.archetype}${s.job ? `, ${s.job}` : ''}, class ${s.size_class} ${classOf(s.size_class).name}, ${Math.round(s.height_cm / 30.48)} ft) — ${s.shoes}; ${s.socks}`;

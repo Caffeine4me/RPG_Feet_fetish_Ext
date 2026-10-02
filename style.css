@@ -45,6 +45,10 @@
 .ss-stage-text { position: absolute; top: 6px; left: 8px; right: 70px; font-size: 11px; opacity: 0.7; text-shadow: 0 1px 2px #000; }
 .ss-stage-tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; }
 .ss-sprites { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-end; gap: 4%; padding: 26px 0 4px; }
+.ss-sprites { align-items: flex-end; overflow: hidden; }
+.ss-you { position: absolute; left: 6%; bottom: 4px; display: flex; align-items: flex-end; }
+.ss-you img { height: 100%; image-rendering: pixelated; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.7)); }
+.ss-tag.ss-size { background: rgba(255,210,63,0.2); border: 1px solid rgba(255,210,63,0.5); }
 .ss-sprite { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
 .ss-sprite img { flex: 1; min-height: 0; max-width: 40vw; object-fit: contain; object-position: bottom; image-rendering: pixelated; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6)); }
 .ss-sprite-name { font-size: 11px; opacity: 0.8; text-shadow: 0 1px 2px #000; }

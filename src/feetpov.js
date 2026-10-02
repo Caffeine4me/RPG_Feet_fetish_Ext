@@ -65,10 +65,17 @@ export function drawFeetPov(ctx, { sheet, feet = 'socks', tick = 0, tiny = true,
     ctx.fillStyle = feet === 'socks' ? c.socks : c.skin; ctx.fillRect(64, 118, 22, 18); ctx.fillRect(154, 122, 22, 18);
     // The two feet, soles toward us, toes up. Left foot at x≈75, right at x≈165; a slight tilt between them.
     const wig = Math.round(Math.sin(tick / 6) * 1.5); // toe wiggle
+    // The bigger her class, the more of the frame her feet take (class 1 fits; class 6 is two walls of sole).
+    const cls = sheet.size_class ?? 1;
+    const zoom = 0.85 + (cls - 1) * 0.28;
+    ctx.save();
+    ctx.translate(120, 128);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-120, -128);
     foot(ctx, 75, 60, { c, feet, sweaty, dirty, wig, mirror: false, pattern: sockPattern(sheet.socks), tick });
     foot(ctx, 165, 64, { c, feet, sweaty, dirty, wig: -wig, mirror: true, pattern: sockPattern(sheet.socks), tick });
-    // Stink wisps.
     if (feet !== 'shoes' && stink > 0) wisps(ctx, [75, 165], 50, tick, stink);
+    ctx.restore();
     // The tiny at the bottom edge, looking up.
     if (tiny) tinyPerson(ctx, 120, H - 10, tick);
 }
@@ -153,9 +160,9 @@ export function feetPovPrompt(sheet, { feet = 'socks', tiny = true, place = '' }
     const what = feet === 'shoes' ? `the soles of her ${sheet.shoes}` : feet === 'socks' ? `her ${sheet.socks}, soles toward the viewer` : 'her bare soles toward the viewer, toes at the top';
     return [
         'Pixel art in the style of a 2000s browser flash game: chunky dark outlines, flat warm colours, no gradients, no text.',
-        `Point of view from the far edge of a table: ${sheet.name} has her feet up on it, crossed at the ankles, ${what}, huge, filling most of the frame, her legs going away toward her seat in the background.`,
+        `Point of view from the far edge of a table, at the eye level of a normal-sized human: ${sheet.name}, a giant ${Math.round(sheet.height_cm / 30.48)} ft tall, has her feet up on it, crossed at the ankles, ${what}, ${(sheet.size_class ?? 1) >= 4 ? 'so big that one sole fills the frame' : 'huge, filling most of the frame'}, her legs going away toward her seat in the background.`,
         feet !== 'shoes' ? `Green stink wisps rise off them${(sheet.dials?.sweaty ?? 5) >= 7 ? ', sweat droplets glisten' : ''}${(sheet.dials?.dirty ?? 5) >= 7 ? ', the soles grimy with dirt' : ''}.` : '',
-        tiny ? 'A small blue-skinned tiny person stands at the bottom edge of the table, looking up at them.' : '',
+        tiny ? 'A normal-sized blue-skinned person stands at the bottom edge of the table, tiny next to them, looking up.' : '',
         place ? `The room behind: ${place}.` : '',
     ].filter(Boolean).join(' ');
 }

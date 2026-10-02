@@ -11,8 +11,9 @@ import { normalizeWorld, createState, isOpenNow, isUnlocked, closedHint, whoIsAt
 import { odds } from '../src/rules.js';
 import { parseReply } from '../src/scene.js';
 import { spriteDataUrl } from '../src/pixelsprite.js';
+const q = new URLSearchParams(location.search);
 
-const card = normalizeSheet({ name: 'Marisol Reyes', age: 21, from: 'Spain', archetype: 'Princess', job: 'sorority president', look: 'tall, tanned skin, long blonde hair in a ponytail, white tennis dress', hook: "Daddy's money and a tennis scholarship she doesn't need.", shoes: 'white platform sneakers', socks: 'pink ankle socks with a crown logo', dials: { bossy: 7, bratty: 10, friendly: 2, smelly: 9, sweaty: 8, dirty: 4 }, odor: { cheesy: 50, lemony: 20, fishy: 10, meaty: 20 }, wants: { verbs: ['rub', 'sniff'], hates: ['lick'], trigger: 'being ignored' } }, { card: true });
+const card = normalizeSheet({ name: 'Marisol Reyes', age: 21, from: 'Spain', archetype: 'Princess', job: 'sorority president', look: 'tall, tanned skin, long blonde hair in a ponytail, white tennis dress', hook: "Daddy's money and a tennis scholarship she doesn't need.", shoes: 'white platform sneakers', socks: 'pink ankle socks with a crown logo', dials: { bossy: 7, bratty: 10, friendly: 2, smelly: 9, sweaty: 8, dirty: 4 }, odor: { cheesy: 50, lemony: 20, fishy: 10, meaty: 20 }, wants: { verbs: ['rub', 'sniff'], hates: ['lick'], trigger: 'being ignored' } }, { card: true, size_class: Number(q.get('cls') || 2), height_cm: [0, 366, 610, 1000, 1500, 2100, 2800][Number(q.get('cls') || 2)] });
 const world = normalizeWorld({
   town: { name: 'Port Sock', vibe: 'seaside college town', intro: 'The ferry drops you at the pier with one bag and a rent you cannot afford.' },
   locations: [
@@ -32,7 +33,7 @@ const world = normalizeWorld({
   ],
   residents: [
     { id: 'marisol_reyes', name: 'Marisol Reyes', home: 'zbz', schedule: { morning: 'gym', afternoon: 'cafe', evening: 'zbz', night: 'zbz' } },
-    { name: 'Bea Kowalski', archetype: 'Drill', job: 'gym coach', look: 'stocky, short brown hair, navy hoodie and grey sweatpants', home: 'gym', schedule: { morning: 'gym', afternoon: 'gym', evening: 'burger' }, shoes: 'sweaty trainers', socks: 'grey sport socks' },
+    { name: 'Bea Kowalski', archetype: 'Drill', job: 'gym coach', size_class: 1, height_cm: 340, look: 'stocky, short brown hair, navy hoodie and grey sweatpants', home: 'gym', schedule: { morning: 'gym', afternoon: 'gym', evening: 'burger' }, shoes: 'sweaty trainers', socks: 'grey sport socks' },
     { name: 'Noor Haddad', archetype: 'Viper', job: 'barista', home: 'cafe', schedule: { morning: 'cafe', afternoon: 'cafe', evening: 'park' } },
   ],
   quests: [{ id: 'bag', title: 'Carry the bag', giver: 'marisol_reyes', goal: 'Carry her gym bag across town without complaining.', reward: { opens: 'laundro', favor: 2 } }],
@@ -57,7 +58,7 @@ const view = () => ({ chatOpen: true, cast: ['Marisol Reyes'], world, state, lay
   statusOf: (l) => !isUnlocked(world, state, l) ? 'locked' : !isOpenNow(world, state, l) ? 'closed' : 'open',
   hint: (l) => closedHint(world, state, l), odds: (s, k) => odds(state, s, k) ?? 0.5,
   expressionOf: (s) => state.scene?.expressions?.[s.name.split(' ')[0]] ?? 'neutral',
-  spriteUrl: (s, e) => spriteDataUrl(s, e, 4), feetUrl: () => '', feetState: () => 'socks', backgroundUrl: () => '', spritesBusy: () => false });
+  spriteUrl: (s, e) => spriteDataUrl(s, e, 4), youUrl: () => spriteDataUrl({ name: 'Tom', look: 'short brown hair, blue hoodie, black jeans', shoes: 'sneakers', socks: 'white socks' }, 'neutral', 4), feetUrl: () => '', feetState: () => 'socks', backgroundUrl: () => '', spritesBusy: () => false });
 const app = { view, onTravel: (id) => { state.at = id; panel.setTab('scene'); }, onWait() {}, onSleep() {}, onLook() {}, onChoice: (c) => panel.setStatus(`chose: ${c.text}`), onFreeText() {}, onVerb: (v, id) => panel.setStatus(`${v} ${id}`), onNewGame() {}, onMakeSprites() {}, onMakeFeet() {}, onMakeBackground() {}, onPicture() {}, onEditDial() {}, onLayout() {}, onClose() {}, onRewind() {}, onExport() {}, onImport() {} };
 const panel = new Panel(app, { left: 10, top: 10, width: 760, height: 700, tab: new URLSearchParams(location.search).get('tab') || 'map' });
 panel.mount(document.body);

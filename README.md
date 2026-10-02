@@ -1,12 +1,32 @@
 # Sole Survivor
 
 A [SillyTavern](https://sillytavern.app/) extension that turns the character you are chatting with into
-the centre of a small, explorable town, in the spirit of 2000s flash adventure games about bossy girls
-with smelly socks. Pixel town map, visual-novel scenes, a rules engine with dice, and sprites, feet cards
-and backgrounds generated automatically from the character card.
+a **giant** at the centre of a small, explorable town built to her scale, in the spirit of 2000s flash
+adventure games about bossy girls with smelly socks. You are a normal-sized human. Pixel town map,
+visual-novel scenes, a rules engine with dice, a feet point of view that scales with her size, and sprites,
+feet cards and backgrounds generated automatically from the character card.
 
-**Adult content.** Foot fetish, femdom, humiliation, size play. Everyone is an adult. Original cast only:
+**Adult content.** Giantess, foot fetish, femdom, humiliation. Everyone is an adult. Original cast only:
 the extension ships a character *template* and a town *framework*; nothing from any existing game is included.
+
+## Size classes
+
+Every woman in the cast is rolled into a size class, the taller ones rarer. The extension rolls, not the
+model, so the odds hold.
+
+| Class | Name | Height | Share |
+| --- | --- | --- | --- |
+| 1 | Big | 10–15 ft | 40% |
+| 2 | Towering | 15–25 ft | 27% |
+| 3 | Colossal | 25–40 ft | 17% |
+| 4 | Titanic | 40–60 ft | 10% |
+| 5 | Monumental | 60–80 ft | 5% |
+| 6 | Mythic | 80–100 ft | 1% |
+
+Your character's class can be rolled or pinned in the settings. The class sets the scale paragraph in every
+prompt (her sole, her toe, where you come up to on her), the difficulty of sniffing, licking, climbing and
+hiding, how readily a bad end triggers, how far the feet point of view zooms, and how tall her sprite stands
+next to yours on the stage.
 
 ## What it does
 
@@ -76,7 +96,8 @@ coloured nameplate, so the game is playable with the window closed. A **Connecti
 
 | Setting | What it does |
 | --- | --- |
-| Extra residents | How many characters the town generator invents around your card |
+| Extra residents | How many giants the town generator invents around your card |
+| Your character's size class | Roll it (rarer the taller) or pin a class 1–6 |
 | Model for building and bookkeeping | A Connection Profile (a fast model is fine) for the sheet, the town and the after-reply bookkeeping |
 | What you want the town to be like | Free text: "seaside college town", "make her a Viper", "she runs the gym" |
 | Cruelty / Smell / Scene length / Lethal | Tone knobs in the brief |

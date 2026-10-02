@@ -4,6 +4,7 @@
 
 import { extractJson, list, num, slug, str } from './json.js';
 import { SLOTS, normalizeSheet, sheetSummary } from './sheet.js';
+import { PLAYER_CM, classOf, heightFor, rarityTable, rollCast } from './size.js';
 
 export { SLOTS };
 
@@ -60,11 +61,12 @@ const WORLD_SHAPE = `{
 }
 Opening rules ("open"): { "when": "start" } | { "when": "day", "day": 3 } | { "when": "quest", "quest": "quest id" } | { "when": "favor", "who": "resident id", "min": 5 } | { "when": "flag", "flag": "name", "hint": "what the sign says" }`;
 
-export const WORLD_RULES = `You design the town for a foot-fetish comedy RPG in the style of 2000s flash adventure games: a pixel town to explore, bossy girls with smelly socks, chores and favours, humiliating bad ends played for laughs. Answer with JSON only.
+export const WORLD_RULES = `You design the town for a giantess foot-fetish comedy RPG in the style of 2000s flash adventure games: a pixel town built at giant scale, bossy giant women with smelly socks, a normal-sized human player who lives among them, chores and favours, humiliating bad ends played for laughs. Answer with JSON only.
 
 Rules:
+- Every resident is a giant woman. Her size class and height are GIVEN below and not yours to change; write each one as used to her own size. The player is a normal human (${Math.round(PLAYER_CM)} cm) and the town is built for giants: doors, chairs, tables, shoes and socks are all at their scale, and the player's home is something small (a shoebox flat in a wall, a dollhouse, a drawer).
 - The MAIN CHARACTERS (given below, from the player's character cards) are the heart of the town. Build the town around their lore: where they live, where they work and hang out, their friends, rivals, family, and anything their cards mention. Keep their sheets as given; only add "home" and "schedule".
-- Invent the requested number of extra residents, each with a complete sheet (same shape as the main characters), different archetypes, different feet, different voices. Some are friends of the main characters, some rivals, one may be an authority figure.
+- Invent the requested number of extra residents, each with a complete sheet (same shape as the main characters) and the size class listed for her, different archetypes, different feet, different voices. Some are friends of the main characters, some rivals, one may be an authority figure.
 - 10 to 14 locations. One is the player's home (type "home", open from the start). Every resident has a home that is a location. Add workplaces and hangouts that fit the residents' jobs and hobbies, and a few public places (park, bus stop, cafe, cinema, laundromat...). About a third of the locations start CLOSED, each with a different opening rule; the rest are open from the start. The main characters' homes are open from the start.
 - Schedules: each resident is somewhere every slot (morning, afternoon, evening, night), usually home at night, and the main characters are reachable in at least two slots at open locations.
 - 3 to 5 quests. The first one or two are given by the main characters, small and concrete (fetch, carry, clean, deliver, find), each with a humiliating twist. Rewards open closed locations.
@@ -80,9 +82,11 @@ Rules:
  * @param {number} [o.extraResidents] how many residents to invent
  * @param {string} [o.vibe] the player's wish for the town ("seaside college town", "boarding school")
  */
-export function buildWorldMessages({ sheets, user, persona = '', scenario = '', extraResidents = 5, vibe = '' }) {
+export function buildWorldMessages({ sheets, user, persona = '', scenario = '', extraResidents = 5, vibe = '', classes = [] }) {
     const parts = [];
+    parts.push(`SIZE CLASSES: ${rarityTable()}.`);
     parts.push(`MAIN CHARACTERS:\n${sheets.map((s) => `- id "${s.id}": ${sheetSummary(s)}`).join('\n')}`);
+    if (classes.length) parts.push(`EXTRA RESIDENTS' SIZES, in order (write "size_class" and "height_cm" exactly as given): ${classes.map((c, i) => `#${i + 1}: class ${c.n} ${classOf(c.n).name}, ${c.height_cm} cm (${Math.round(c.height_cm / 30.48)} ft)`).join('; ')}`);
     if (scenario) parts.push(`THEIR SCENARIO: ${str(scenario, 2000)}`);
     parts.push(`THE PLAYER (${user})${persona ? `: ${str(persona, 1500)}` : ''}`);
     if (vibe) parts.push(`THE PLAYER WANTS: ${str(vibe, 400)}`);
@@ -110,7 +114,7 @@ function normalizeRule(raw, { quests, residents }) {
  * @param {object|string} raw
  * @param {{cardSheets: object[]}} o
  */
-export function normalizeWorld(raw, { cardSheets = [] } = {}) {
+export function normalizeWorld(raw, { cardSheets = [], classes = [] } = {}) {
     const r = (typeof raw === 'string' ? extractJson(raw) : raw) ?? {};
     const town = { name: str(r.town?.name, 60) || 'Sockville', vibe: str(r.town?.vibe, 200), intro: str(r.town?.intro, 600) };
 
@@ -144,7 +148,8 @@ export function normalizeWorld(raw, { cardSheets = [] } = {}) {
         const id = slug(x?.id || x?.name);
         if (!id || used.has(id) || residents.some((s) => s.id === id)) continue;
         if (cardSheets.some((cs) => str(x?.name, 60).toLowerCase() === cs.name.toLowerCase())) continue;
-        residents.push(normalizeSheet(x, { id, seed: residents.length }));
+        const given = classes[residents.length - cardSheets.length];
+        residents.push(normalizeSheet(x, { id, seed: residents.length, ...(given ? { size_class: given.n, height_cm: given.height_cm } : {}) }));
         used.add(id);
     }
 
@@ -322,6 +327,13 @@ export function addLocation(world, { name, type = 'generic', interior = '', note
     const loc = { id, name: str(name, 40), type: t, open: open ? { when: 'start' } : { when: 'flag', flag: `open:${id}`, hint: hint || 'You have heard of this place. Find a way in.' }, hours: [...LOCATION_TYPES[t].hours], interior: str(interior, 300) || LOCATION_TYPES[t].interior, notes: str(notes, 300), background: {} };
     world.locations.push(loc);
     return loc;
+}
+
+/** Pre-roll the sizes of `count` invented residents: [{ n, height_cm }], seeded. */
+export function rollSizes(count, seed = 1) {
+    let a = (Number(seed) || 1) >>> 0;
+    const rng = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    return rollCast(count, rng).map((n) => ({ n, height_cm: heightFor(n, rng()) }));
 }
 
 /** The town as a few lines for the prompt: open places, closed places, who is where now. */

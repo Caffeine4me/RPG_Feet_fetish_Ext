@@ -33,3 +33,16 @@ test('the summary and the prompt carry the card', () => {
     assert.match(m[1].content, /CHARACTER: Ada/);
     assert.match(m[1].content, /THE PLAYER \(Tom\)/);
 });
+
+test('size: the rolled class wins, a giant height maps to a class, and the prompt carries it', () => {
+    const a = normalizeSheet({ name: 'Ada' }, { size_class: 4, height_cm: 1500 });
+    assert.equal(a.size_class, 4);
+    assert.equal(a.height_cm, 1500);
+    const b = normalizeSheet({ name: 'Bo', height_cm: 2900 });
+    assert.equal(b.size_class, 6);
+    const c = normalizeSheet({ name: 'Cy', height_cm: 170 }); // a normal height: the sheet rolls a class instead
+    assert.ok(c.size_class >= 1 && c.size_class <= 6 && c.height_cm >= 305);
+    assert.match(sheetSummary(a), /size class 4, Titanic/);
+    const m = buildSheetMessages({ card: { name: 'Ada' }, user: 'Tom', size: { size_class: 4, height_cm: 1500 } });
+    assert.match(m[1].content, /SIZE \(fixed\): Ada is 15\.0 m/);
+});

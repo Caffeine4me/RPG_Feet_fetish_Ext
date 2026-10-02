@@ -5,7 +5,7 @@
 
 import { extractJson, slug } from './src/json.js';
 import { EXPRESSIONS, buildSheetMessages, normalizeSheet } from './src/sheet.js';
-import { addLocation, createState, findLocation, findResident, isOpenNow, isUnlocked, closedHint, normalizeWorld, buildWorldMessages, questDone, questGiven, sleep as sleepAt, travel as travelTo, wait as waitSlot, whoIsAt, advance } from './src/world.js';
+import { rollSizes, addLocation, createState, findLocation, findResident, isOpenNow, isUnlocked, closedHint, normalizeWorld, buildWorldMessages, questDone, questGiven, sleep as sleepAt, travel as travelTo, wait as waitSlot, whoIsAt, advance } from './src/world.js';
 import { applyDeltas, check, odds, setValue, tiny, triggers } from './src/rules.js';
 import { buildBrief, buildReconcileMessages, choiceMessage, parseReconcile, parseReply, verbOf } from './src/scene.js';
 import { DEFAULT_MODELS, PICTURE_SOURCES, failureText, modelsRequest, pictureRequest, readModels, readPicture } from './src/picture.js';
@@ -14,6 +14,7 @@ import { Panel } from './src/panel.js';
 import { ST_CHECKS, decorateMessage, runChecks } from './src/chatview.js';
 import { spriteDataUrl } from './src/pixelsprite.js';
 import { feetPovPrompt } from './src/feetpov.js';
+import { SIZE_CLASSES, classOf, heightFor, rollClass, sizeLine } from './src/size.js';
 
 const NAME = 'soleSurvivor';
 const META_KEY = 'sole_survivor';
@@ -27,6 +28,7 @@ const DEFAULTS = {
     maxTokens: 6000,
     extraResidents: 5,
     vibe: '',
+    cardClass: 'roll', // size class for the character card: 'roll' or 1-6
     cruelty: 6, smell: 7, lethal: false, length: 'short',
     reconcile: true,
     sendMode: 'send', // 'send' or 'fill'
@@ -146,15 +148,18 @@ async function newGame() {
         const persona = sub('{{persona}}');
         const user = c.name1;
         const sheets = [];
-        for (const card of cards) {
-            panel?.setStatus(`Writing ${card.name}'s sheet…`);
-            const reply = await askJson(buildSheetMessages({ card: { name: card.name, description: sub(card.description, card.name), personality: sub(card.personality, card.name), scenario: sub(card.scenario, card.name), first_mes: sub(card.first_mes, card.name), mes_example: sub(card.mes_example, card.name) }, persona: persona === '{{persona}}' ? '' : persona, user, extra: cfg().vibe }), 'a character sheet');
-            sheets.push(normalizeSheet(reply, { id: slug(card.name), name: card.name, card: true, avatar: card.avatar }));
-        }
-        panel?.setStatus(`Building the town around ${sheets.map((s) => s.name).join(', ')}…`);
-        const reply = await askJson(buildWorldMessages({ sheets, user, persona: persona === '{{persona}}' ? '' : persona, scenario: sub(cards[0].scenario, cards[0].name), extraResidents: Number(cfg().extraResidents) || 0, vibe: cfg().vibe }), 'a town');
-        const world = normalizeWorld(reply, { cardSheets: sheets });
         const seed = Math.floor(Math.random() * 1e9);
+        for (const card of cards) {
+            const n = cfg().cardClass === 'roll' || !cfg().cardClass ? rollClass(Math.random()) : classOf(cfg().cardClass).n;
+            const size = { size_class: n, height_cm: heightFor(n, Math.random()) };
+            panel?.setStatus(`Writing ${card.name}'s sheet (class ${n}, ${classOf(n).name})…`);
+            const reply = await askJson(buildSheetMessages({ card: { name: card.name, description: sub(card.description, card.name), personality: sub(card.personality, card.name), scenario: sub(card.scenario, card.name), first_mes: sub(card.first_mes, card.name), mes_example: sub(card.mes_example, card.name) }, persona: persona === '{{persona}}' ? '' : persona, user, extra: cfg().vibe, size }), 'a character sheet');
+            sheets.push(normalizeSheet(reply, { id: slug(card.name), name: card.name, card: true, avatar: card.avatar, ...size }));
+        }
+        const classes = rollSizes(Number(cfg().extraResidents) || 0, seed);
+        panel?.setStatus(`Building the town around ${sheets.map((s) => s.name).join(', ')}…`);
+        const reply = await askJson(buildWorldMessages({ sheets, user, persona: persona === '{{persona}}' ? '' : persona, scenario: sub(cards[0].scenario, cards[0].name), extraResidents: Number(cfg().extraResidents) || 0, vibe: cfg().vibe, classes }), 'a town');
+        const world = normalizeWorld(reply, { cardSheets: sheets, classes });
         const state = createState(world, { seed });
         c.chatMetadata[META_KEY] = { world, state, layoutSeed: seed, gallery: [], log: [] };
         undo.length = 0;
@@ -245,6 +250,7 @@ const view = () => {
         feetState: (id) => g?.state.feet?.[id] ?? '',
         backgroundUrl: (loc) => loc.background?.[g?.state.slot === 'night' ? 'night' : 'day'] || loc.background?.day || loc.background?.night || '',
         spritesBusy: (id) => spritesBusy.has(id),
+        youUrl: () => placeholderSprite({ id: '__you', name: c.name1, look: sub('{{persona}}') === '{{persona}}' ? '' : sub('{{persona}}'), shoes: 'sneakers', socks: 'white socks' }, 'neutral'),
     };
 };
 
@@ -729,12 +735,13 @@ function settingsHtml() {
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <small>A foot-fetish RPG around the character in this chat: a pixel town to explore, visual-novel scenes, generated sprites. Open the game window from the wand menu or with <code>/sole</code>.</small>
+      <small>A giantess foot-fetish RPG around the character in this chat: every woman is a giant of a rolled size class (1 Big, 10 ft, common … 6 Mythic, 100 ft, rare), you are a normal-sized human, and there is a pixel town to explore. Open the game window from the wand menu or with <code>/sole</code>.</small>
       <div class="flex-container"><div id="ss_open" class="menu_button"><i class="fa-solid fa-socks"></i> Open the game window</div></div>
       <label class="checkbox_label"><input type="checkbox" data-key="enabled"> Enabled (injects the game brief into the prompt while a game is on)</label>
       <h4>New game</h4>
       <div class="ss-row">
         <label>Extra residents to invent <input class="text_pole" type="number" min="0" max="12" data-key="extraResidents"></label>
+        <label>Your character's size class <select class="text_pole" data-key="cardClass">${options([['roll', 'Roll it (rarer the taller)'], ...SIZE_CLASSES.map((c) => [c.n, `${c.n} ${c.name} (${c.ft[0]}-${c.ft[1]} ft)`])], s.cardClass)}</select></label>
         <label>Model for building and bookkeeping <select class="text_pole" id="ss_profile" data-key="profile"></select></label>
       </div>
       <label>What you want the town to be like (optional) <input class="text_pole" type="text" data-key="vibe" placeholder="e.g. seaside college town; make her a Viper; she runs the gym"></label>

@@ -13,9 +13,9 @@ h2{margin:0;font-size:14px;color:#ffb347}</style></head>
 import { drawFeetPov, POV_W, POV_H } from '../src/feetpov.js';
 import { normalizeSheet } from '../src/sheet.js';
 const cast = [
-  [normalizeSheet({ name: 'Marisol Reyes', look: 'tanned skin, long blonde hair, white tennis dress', shoes: 'white platform sneakers', socks: 'pink ankle socks with a crown logo', dials: { smelly: 9, sweaty: 8, dirty: 4 } }), 'socks', 'Marisol · pink socks, sweaty (feet up on the table)'],
-  [normalizeSheet({ name: 'Noor Haddad', look: 'olive skin, long black hair, red crop top and black jeans', shoes: 'red cowgirl boots', socks: 'black socks with holes', dials: { smelly: 10, sweaty: 5, dirty: 8 } }), 'socks', 'Noor · black socks with holes, grimy'],
-  [normalizeSheet({ name: 'Bea Kowalski', look: 'short brown hair, navy hoodie and grey sweatpants', shoes: 'sweaty black trainers', socks: 'grey striped sport socks', dials: { smelly: 8, sweaty: 9, dirty: 7 } }), 'bare', 'Bea · barefoot, sweat beading'],
+  [normalizeSheet({ name: 'Marisol Reyes', look: 'tanned skin, long blonde hair, white tennis dress', shoes: 'white platform sneakers', socks: 'pink ankle socks with a crown logo', dials: { smelly: 9, sweaty: 8, dirty: 4 }, size_class: 1, height_cm: 366 }), 'socks', 'Marisol · class 1 Big, 12 ft · pink socks, sweaty'],
+  [normalizeSheet({ name: 'Noor Haddad', look: 'olive skin, long black hair, red crop top and black jeans', shoes: 'red cowgirl boots', socks: 'black socks with holes', dials: { smelly: 10, sweaty: 5, dirty: 8 }, size_class: 3, height_cm: 1000 }), 'socks', 'Noor · class 3 Colossal, 33 ft · black socks with holes, grimy'],
+  [normalizeSheet({ name: 'Bea Kowalski', look: 'short brown hair, navy hoodie and grey sweatpants', shoes: 'sweaty black trainers', socks: 'grey striped sport socks', dials: { smelly: 8, sweaty: 9, dirty: 7 }, size_class: 6, height_cm: 2800 }), 'bare', 'Bea · class 6 Mythic, 92 ft · barefoot'],
 ];
 let tick = Number(new URLSearchParams(location.search).get('tick') || 7);
 for (const [sheet, feet, title] of cast) {

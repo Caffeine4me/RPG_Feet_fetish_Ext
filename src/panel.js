@@ -6,6 +6,7 @@ import { POV_H, POV_W, drawFeetPov } from './feetpov.js';
 import { ARCHETYPES, DIALS, EXPRESSIONS, VERBS } from './sheet.js';
 import { CHECKS } from './rules.js';
 import { SLOTS, findLocation, typeOf, whoIsAt } from './world.js';
+import { PLAYER_CM, classOf, sizeLine } from './size.js';
 
 function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
@@ -205,7 +206,11 @@ export class Panel {
             stageInner = [this.povCanvas, el('div', { class: 'ss-pov-name', text: `${first(target.name)} · ${this.povArgs.feet}` })];
         } else {
             this.povCanvas = null;
-            stageInner = [!bg ? el('div', { class: 'ss-stage-text', text: here ? `${here.name}: ${here.interior}` : '' }) : null, el('div', { class: 'ss-sprites' }, ...present.map((s) => this._sprite(v, s)))];
+            const tallest = present.reduce((m, s) => Math.max(m, s.height_cm || 0), 0);
+            const youPct = tallest ? Math.max(3, Math.min(30, (62 + ((present.find((s) => s.height_cm === tallest)?.size_class ?? 1) - 1) * 40) * (PLAYER_CM / tallest))) : 0;
+            stageInner = [!bg ? el('div', { class: 'ss-stage-text', text: here ? `${here.name}: ${here.interior}` : '' }) : null,
+                el('div', { class: 'ss-sprites' }, ...present.map((s) => this._sprite(v, s))),
+                present.length ? el('div', { class: 'ss-you', style: { height: `${youPct}%` }, title: `${v.user}: ${PLAYER_CM} cm, for scale` }, el('img', { src: v.youUrl(), alt: 'you', draggable: false })) : null];
         }
         const stage = el('div', { class: `ss-stage${feetOn ? ' ss-stage-pov' : ''}`, style: bg && !feetOn ? { backgroundImage: `url("${encodeURI(bg)}")` } : {} },
             ...stageInner,
@@ -263,12 +268,15 @@ export class Panel {
         const expr = v.expressionOf(s);
         const url = v.spriteUrl(s, expr);
         const feet = v.feetState(s.id);
-        const wrap = el('div', { class: `ss-sprite ss-expr-${expr}`, title: `${s.name} (${expr}${feet ? `, ${feet}` : ''})` });
+        // Height on the stage by class: class 1 fits, class 6 towers out of the top (you see her legs and feet).
+        const cls = s.size_class ?? 1;
+        const pct = Math.min(260, 62 + (cls - 1) * 40);
+        const wrap = el('div', { class: `ss-sprite ss-expr-${expr}`, title: `${s.name} (${expr}${feet ? `, ${feet}` : ''}) · ${sizeLine(s)}`, style: { height: `${pct}%` } });
         const generated = Boolean(s.sprites?.[expr] || s.sprites?.neutral);
         if (url) wrap.append(el('img', { src: url, alt: s.name, draggable: false }));
         else wrap.append(el('div', { class: 'ss-silhouette' }, el('span', { text: first(s.name) })));
         if (!generated) wrap.append(v.spritesBusy(s.id) ? el('div', { class: 'ss-hint', text: 'drawing…' }) : btn('Make sprites', `Generate ${first(s.name)}'s expression sheet with the image model`, () => this.app.onMakeSprites(s.id), 'ss-small'));
-        wrap.append(el('div', { class: 'ss-sprite-name', text: `${first(s.name)} · ${expr}` }));
+        wrap.append(el('div', { class: 'ss-sprite-name', text: `${first(s.name)} · ${expr} · ${classOf(cls).name} ${Math.round(s.height_cm / 30.48)} ft` }));
         return wrap;
     }
 
@@ -283,7 +291,7 @@ export class Panel {
             return el('div', { class: 'ss-card' },
                 el('div', { class: 'ss-card-pic' }, url ? el('img', { src: url, alt: s.name }) : el('div', { class: 'ss-silhouette' }, el('span', { text: first(s.name) }))),
                 el('div', { class: 'ss-card-body' },
-                    el('div', { class: 'ss-card-head' }, el('b', { text: s.name }), s.card ? el('span', { class: 'ss-tag', text: 'your character' }) : null, ` ${s.age} · ${s.archetype} · ${s.job || ''}`),
+                    el('div', { class: 'ss-card-head' }, el('b', { text: s.name }), s.card ? el('span', { class: 'ss-tag', text: 'your character' }) : null, ` ${s.age} · ${s.archetype} · ${s.job || ''}`, el('span', { class: 'ss-tag ss-size', text: sizeLine(s) })),
                     el('div', { class: 'ss-hint', text: ARCHETYPES[s.archetype]?.line }),
                     el('div', { text: s.hook }),
                     el('div', { class: 'ss-hint', text: `Feet: ${s.shoes}; ${s.socks}. Smell: cheesy ${s.odor.cheesy}% lemony ${s.odor.lemony}% fishy ${s.odor.fishy}% meaty ${s.odor.meaty}%.` }),

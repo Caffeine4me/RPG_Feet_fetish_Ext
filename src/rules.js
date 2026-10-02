@@ -4,6 +4,7 @@
 
 import { num } from './json.js';
 import { DIAL_MAX } from './sheet.js';
+import { PLAYER_CM, scaleOf } from './size.js';
 
 const LIMITS = {
     player: { stamina: [0, 10], composure: [0, 10], dirt: [0, 10], money: [0, 99999], reputation: [-10, 10], size_cm: [1, 400] },
@@ -40,7 +41,10 @@ export const CHECKS = {
     chore: { label: 'Chore', stamina: 2, diff: (d) => 8 + d.bossy * 0.3 },
 };
 
-export const tiny = (state) => (state.player?.size_cm ?? 175) < 30;
+/** How many times taller she is than the player. */
+export const ratioOf = (state, sheet) => scaleOf(sheet?.height_cm ?? PLAYER_CM, state.player?.size_cm ?? PLAYER_CM).ratio;
+/** Small enough, next to her, that climbing, hiding and being crushed are on the table. */
+export const tiny = (state, sheet = null) => (sheet ? ratioOf(state, sheet) >= 2 : (state.player?.size_cm ?? PLAYER_CM) < 100);
 
 /** The odds (0..1) of passing a check, for showing on a choice button. */
 export function odds(state, sheet, kind) {
@@ -58,7 +62,12 @@ function difficulty(state, sheet, kind) {
     need += rel.irritation * 0.4;
     if (sheet.wants?.verbs?.includes(kind)) need -= 3;
     if (sheet.wants?.hates?.includes(kind)) need += 4;
-    if (tiny(state) && ['sniff', 'lick', 'rub', 'kiss'].includes(kind)) need += 1; // everything is bigger than you
+    // Scale: a bigger giant means more stench per breath and more sole to cover; climbing and hiding get harder too.
+    const cls = sheet.size_class ?? 1;
+    if (['sniff', 'lick'].includes(kind)) need += (cls - 1) * 0.6;
+    if (['rub', 'kiss', 'chore'].includes(kind)) need += (cls - 1) * 0.3;
+    if (['climb', 'sneak'].includes(kind)) need += (cls - 1) * 0.5;
+    if (kind === 'hide') need -= (cls - 1) * 0.3; // easier to vanish next to something that big
     return Math.round(need);
 }
 
@@ -171,7 +180,7 @@ export function triggers(state, present = []) {
         const r = state.rel[s.id] ?? {};
         if (r.irritation >= 9) out.push({ id: `punish:${s.id}`, who: s.id, text: `${s.name} has had enough of you: she punishes you now, in her own style, before anything else happens.`, severity: 'punish' });
         else if (r.irritation >= 6) out.push({ id: `warn:${s.id}`, who: s.id, text: `${s.name} is irritated (${r.irritation}/10) and threatens a punishment.`, severity: 'note' });
-        if (tiny(state) && r.fear >= 8 && (s.dials.friendly <= 3 || s.archetype === 'Viper')) out.push({ id: `end:${s.id}`, who: s.id, text: `${s.name} has caught you and is done playing: this is a bad end unless the player finds a way out this turn.`, severity: 'end' });
+        if (tiny(state, s) && r.fear >= 8 && (s.dials.friendly <= 3 || s.archetype === 'Viper' || (s.size_class ?? 1) >= 4)) out.push({ id: `end:${s.id}`, who: s.id, text: `${s.name} has caught you and is done playing: this is a bad end unless the player finds a way out this turn.`, severity: 'end' });
     }
     return out;
 }
@@ -186,7 +195,7 @@ export function playerLine(state, user = 'You') {
 export function relationLine(state, sheet) {
     const r = state.rel?.[sheet.id] ?? { favor: 0, irritation: 0, fear: 0, met: false };
     const mood = r.irritation >= 8 ? 'furious' : r.irritation >= 5 ? 'irritated' : r.favor >= 8 ? 'fond of you' : r.favor >= 3 ? 'tolerates you' : r.favor < 0 ? 'despises you' : 'indifferent';
-    return `${sheet.name}: ${r.met ? '' : 'never met you before. '}favor ${r.favor}, irritation ${r.irritation}/10${tiny(state) ? `, fear ${r.fear}/10` : ''} (${mood}).`;
+    return `${sheet.name}: ${r.met ? '' : 'never met you before. '}favor ${r.favor}, irritation ${r.irritation}/10${tiny(state, sheet) ? `, your fear of her ${r.fear}/10` : ''} (${mood}).`;
 }
 
 /** The size as a stage name. */

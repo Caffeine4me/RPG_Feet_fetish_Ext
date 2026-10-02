@@ -38,7 +38,7 @@ export function buildBrief({ world, state, user, outcome = null, settings = {} }
     const t = triggers(state, present);
     if (t.length) lines.push(`MUST HAPPEN NOW: ${t.map((x) => x.text).join(' ')}`);
     if (state.event?.type && state.event.type !== 'none') lines.push(`EVENT IN PROGRESS: ${state.event.type}${state.event.note ? ` (${state.event.note})` : ''}.`);
-    lines.push(formatRules({ user, present, settings, tinyNow: tiny(state) }));
+    lines.push(formatRules({ user, present, settings, tinyNow: present.some((s) => tiny(state, s)) || tiny(state) }));
     return lines.join('\n');
 }
 
@@ -49,6 +49,7 @@ function formatRules({ user, present, settings, tinyNow }) {
     return [
         'FORMAT: write the scene like a visual novel. Narration in italics, short. Every spoken line on its own line as `Name [expression]: "words"` where expression is one of: ' + EXPRESSIONS.join(', ') + '. Only the people PRESENT speak' + (names ? ` (${names})` : '') + `; ${user} does not speak unless the player wrote it.`,
         `Then stop (${settings.length === 'long' ? '4-6' : '2-4'} short paragraphs at most) and end with a [CHOICES] block of 3 or 4 numbered options, each written as ${user}'s action in first person ("I offer to carry her bag"). Make one option a check by starting it with (Sniff check), (Lick check), (Rub check), (Kiss check), (Talk check)${tinyNow ? ', (Climb check), (Hide check), (Sneak check)' : ''} or (Chore check) when the action is one of those. One option may be "I leave."`,
+        `SCALE: every woman is a giant of the size the sheet gives and ${user} is a normal-sized human; keep every size, distance and gesture true to that (what she can do with one toe, how far her voice carries, how long it takes ${user} to cross her sole). Never shrink or grow anyone.`,
         'In a group chat, a character who is not PRESENT does not appear or speak; whoever writes this turn writes as the narrator and voices only those present.',
         'Never decide the result of a check, never move the clock, never let the player leave town or change size unless the game state says so. When a girl puts her feet up and demands service, or starts a chore, write [EVENT service_row] or [EVENT chore] on its own line; [EVENT punishment] when she punishes; [EVENT none] when it ends.',
         `TONE: comedic, bratty, humiliating; cruelty ${cruelty}/10; foot smell described vividly (${smell}/10) and exactly as each sheet says. Girls are petty and specific, never gracious. ${settings.lethal ? 'Bad ends can kill a tiny.' : 'Bad ends keep the player as a possession; nobody dies.'}`,

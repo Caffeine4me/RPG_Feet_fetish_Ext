@@ -76,3 +76,15 @@ test('the world prompt names the card and the count', () => {
     assert.match(m[1].content, /Invent 4 extra residents/);
     assert.match(m[1].content, /seaside/);
 });
+
+test('rolled sizes are given to the invented residents, not the card', async () => {
+    const { rollSizes } = await import('../src/world.js');
+    const classes = rollSizes(2, 5);
+    assert.equal(classes.length, 2);
+    const w = normalizeWorld(RAW, { cardSheets: [card], classes });
+    assert.equal(w.residents[1].size_class, classes[0].n);
+    assert.equal(w.residents[1].height_cm, classes[0].height_cm);
+    const m = buildWorldMessages({ sheets: [card], user: 'Tom', extraResidents: 2, classes });
+    assert.match(m[1].content, /EXTRA RESIDENTS' SIZES.*#1: class/);
+    assert.match(m[1].content, /SIZE CLASSES: class 1 Big: 10-15 ft, 40%/);
+});
