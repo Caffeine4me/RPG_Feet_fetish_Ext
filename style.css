@@ -98,3 +98,27 @@
 .sf-settings .sf-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
 .sf-settings .sf-row label { display: flex; flex-direction: column; font-size: 12px; min-width: 130px; flex: 1; }
 .sf-settings textarea { width: 100%; }
+
+/* map and danger */
+.sf-map { width: 100%; image-rendering: pixelated; image-rendering: crisp-edges; border-radius: 4px; border: 1px solid rgba(255,255,255,.12); cursor: crosshair; }
+.sf-now { display: flex; flex-direction: column; gap: 3px; padding: 5px 6px; border: 1px solid rgba(255,255,255,.1); border-radius: 5px; }
+.sf-clock { font-weight: 600; }
+.sf-risk { font-size: 11px; padding: 1px 7px; border-radius: 10px; display: inline-block; width: fit-content; }
+.sf-risk-fairly-safe { background: rgba(124,194,122,.25); }
+.sf-risk-risky { background: rgba(217,194,90,.25); }
+.sf-risk-dangerous { background: rgba(226,149,75,.3); }
+.sf-risk-very-dangerous { background: rgba(216,96,63,.35); }
+.sf-risk-deadly { background: rgba(184,48,47,.5); }
+.sf-injury { background: #5a2a2a; }
+.sf-here, .sf-plan { display: flex; flex-direction: column; gap: 4px; padding: 5px 6px; border: 1px solid rgba(255,255,255,.1); border-radius: 5px; }
+.sf-plan { border-color: rgba(159,209,255,.4); }
+.sf-ways { display: flex; flex-wrap: wrap; gap: 4px; }
+.sf-way { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); color: inherit; border-radius: 4px; padding: 2px 7px; cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
+.sf-way.sf-on { border-color: #9fd1ff; background: rgba(159,209,255,.15); }
+.sf-place { display: flex; align-items: center; gap: 4px; padding: 2px 0; border-bottom: 1px dotted rgba(255,255,255,.1); font-size: 12px; }
+.sf-place.sf-on .sf-place-name { color: #f0d27a; }
+.sf-place-name { flex: 1; cursor: pointer; font-weight: 600; }
+.sf-place label { display: flex; align-items: center; gap: 2px; font-size: 10px; opacity: .8; }
+.sf-tiny { width: 36px; padding: 1px 3px; }
+.sf-kind { width: 92px; }
+.sf-time .sf-btn { flex: 1; }

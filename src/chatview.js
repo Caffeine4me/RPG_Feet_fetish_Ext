@@ -1,10 +1,10 @@
 // The bookkeeping tags in an AI message become small chips at the bottom of the message; the prose
 // stays as written. Display only: the stored message text is unchanged.
 
-import { parseTags, tagLabel } from './tags.js';
+import { TAG_RE, parseTags, tagLabel } from './tags.js';
 
-const TAG_LINE = /^\s*(\[(?:HEALTH|HP|STAMINA|STAM|NERVE|MONEY|CASH|ITEM|COND|XP|NPC|CHECK|TIME|PLACE|NOTE)\b[^\]]*\]\s*)+$/i;
-const TAG_INLINE = /\[(?:HEALTH|HP|STAMINA|STAM|NERVE|MONEY|CASH|ITEM|COND|XP|NPC|CHECK|TIME|PLACE|NOTE)\b[^\]]*\]/gi;
+const TAG_INLINE = new RegExp(TAG_RE.source, 'gi');
+const TAG_LINE = new RegExp(`^\\s*(${TAG_RE.source}\\s*)+$`, 'i');
 
 /**
  * @param {HTMLElement} root the message's .mes_text element

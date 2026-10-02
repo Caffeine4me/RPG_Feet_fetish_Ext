@@ -28,6 +28,18 @@ Loose name matching (first name wins) so the model can write "Mara" and "Mara Vo
 
 One d20 per player turn, seeded from the chat seed and the turn number so a regenerate reuses the same luck. The prompt gives the raw roll, the luck word, and the four totals, and tells the model to use a total only when the action could fail and to report with a CHECK tag. The last few checks are echoed back so the model remembers what happened.
 
+## Danger
+
+`src/danger.js` turns a place and a moment into one difficulty: the place's danger, crowd (thinned by the hour) and cover, the dark, the weather, and the player's own state. The same number is told to the model ("this spot is dangerous for someone your size, difficulty 15") and rolled against by the engine whenever the player moves through the world without the model's help: a leg of travel, an hour waiting in the open, a night without cover. A roll picks a concrete hazard from the place's kind, the route's own list, the weather and the dark, and lands its cost on the sheet before the model sees anything; the model gets the outcome as a fact to narrate.
+
+Time is a cost in itself (`passTime` in `src/sheet.js`): hunger every three hours, warmth lost when wet, cold or out at night, tiredness after sixteen hours awake, and health lost while starving or freezing. A TIME tag that skips ten hours or more is treated gently (he rested and found something to eat along the way), so the model's "the next morning" does not kill him.
+
+## Navigation
+
+`src/nav.js` is a graph: places with kind, danger, crowd, cover and a note; routes with a giant's walking minutes and a hazard list. The story grows it through MAP, ROUTE and PLACE tags; the player can add and edit on the map tab. Walking time for the player is a giant's minutes × (170 / his height) × 1.3 for detours. Paths are found by Dijkstra over those minutes. The drawing (`src/mapart.js`) places new nodes around what they connect to, then relaxes the whole graph with repulsion and route springs; positions are stored, so the map stays put between sessions.
+
+Travel, waiting and sleeping all do three things: run the engine (`journey`, `waitHere`, `sleepHere`), store the outcome as `pending`, and post one short line to the chat as the player. The next generation carries the outcome under MUST HAPPEN; the reply clears it.
+
 ## Code
 
 ```
@@ -38,7 +50,11 @@ src/npcs.js       the roster of giants
 src/tags.js       tag grammar: parse, apply, strip, labels
 src/prompt.js     the injected block
 src/dice.js       seeded d20, attributes, luck words
-src/panel.js      the window (sheet / bag / giants / log)
+src/clock.js      day and minute, slots, TIME tag parsing, weather
+src/nav.js        places, routes, paths, layout, map text
+src/danger.js     difficulty, hazards, legs, journeys, waiting, sleeping, hard states
+src/mapart.js     the map drawing
+src/panel.js      the window (sheet / map / bag / giants / log)
 src/scaleart.js   the to-scale pixel drawing
 src/chatview.js   tags -> chips in the chat
 src/json.js       small parsing helpers

@@ -6,6 +6,10 @@ import { ATTRS, ATTR_HELP } from './dice.js';
 import { METERS, METER_HELP, levelFor, XP_PER_LEVEL } from './sheet.js';
 import { SIZE_CLASSES, ftIn, len, scaleOf, sizeLine } from './size.js';
 import { ART_H, ART_W, drawScale } from './scaleart.js';
+import { clockText, weatherLine } from './clock.js';
+import { KINDS, findPath, here, layout, routesFrom, smallMinutes } from './nav.js';
+import { riskOf } from './danger.js';
+import { drawMap, hitPlace, MAP_H, MAP_W } from './mapart.js';
 
 export function el(tag, attrs = {}, ...kids) {
     const n = document.createElement(tag);
@@ -39,7 +43,8 @@ export class Panel {
             el('span', { class: 'sf-spacer' }),
             btn('–', 'Collapse', () => this.toggleCollapse()),
             btn('×', 'Close', () => this.app.onClose()));
-        this.tabs = el('div', { class: 'sf-tabs' }, ...['sheet', 'bag', 'giants', 'log'].map((t) => el('button', { type: 'button', class: 'sf-tab', dataset: { tab: t }, onclick: () => { this.tab = t; this.prefs.tab = t; this.app.onPrefs(this.prefs); this.refresh(); } }, t)));
+        this.dest = null; // chosen place on the map
+        this.tabs = el('div', { class: 'sf-tabs' }, ...['sheet', 'map', 'bag', 'giants', 'log'].map((t) => el('button', { type: 'button', class: 'sf-tab', dataset: { tab: t }, onclick: () => { this.tab = t; this.prefs.tab = t; this.app.onPrefs(this.prefs); this.refresh(); } }, t)));
         this.body = el('div', { class: 'sf-body' });
         this.status = el('div', { class: 'sf-status' });
         this.root.append(header, this.tabs, this.body, this.status);
@@ -91,7 +96,7 @@ export class Panel {
         this.sub.textContent = s ? `${s.name} · ${ftIn(s.height_cm)} · ${v.moneyText}` : '';
         this.body.replaceChildren();
         if (!s) { this.body.append(el('div', { class: 'sf-empty' }, v.hint || 'Open a chat to start a sheet.', el('div', {}, btn('Start a sheet', 'New sheet for this chat', () => this.app.onNew(), 'sf-primary')))); return; }
-        const draw = { sheet: () => this.sheetTab(v), bag: () => this.bagTab(v), giants: () => this.giantsTab(v), log: () => this.logTab(v) }[this.tab] || (() => this.sheetTab(v));
+        const draw = { sheet: () => this.sheetTab(v), map: () => this.mapTab(v), bag: () => this.bagTab(v), giants: () => this.giantsTab(v), log: () => this.logTab(v) }[this.tab] || (() => this.sheetTab(v));
         draw();
     }
 
@@ -128,11 +133,76 @@ export class Panel {
         const conds = el('div', { class: 'sf-conds' }, ...s.conditions.map((c) => el('span', { class: 'sf-cond', title: 'Click to clear', onclick: () => this.app.onCond(c, false) }, c, ' ×')),
             el('input', { class: 'sf-input sf-cond-in', placeholder: '+ condition', onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim()) { this.app.onCond(e.target.value.trim(), true); e.target.value = ''; } } }));
         this.body.append(conds);
-        this.body.append(el('div', { class: 'sf-row sf-where' },
-            el('input', { class: 'sf-input', value: s.clock, placeholder: 'time (Day 1, morning)', onchange: (e) => this.app.onEdit('clock', e.target.value) }),
-            el('input', { class: 'sf-input sf-grow', value: s.place, placeholder: 'where you are', onchange: (e) => this.app.onEdit('place', e.target.value) })));
+        const at = v.nav ? here(v.nav) : null;
+        const risk = riskOf(at, { sheet: s, time: s.time, weather: v.weather });
+        this.body.append(el('div', { class: 'sf-now' },
+            el('div', { class: 'sf-row' }, el('span', { class: 'sf-clock' }, `🕑 ${clockText(s.time)}`), el('span', { class: 'sf-dim' }, ` · ${weatherLine(v.weather).split(':')[0]}`)),
+            el('div', { class: 'sf-row' }, el('span', { class: 'sf-tag' }, `📍 ${at ? at.name : 'nowhere named'}`), el('input', { class: 'sf-input sf-grow', value: s.place, placeholder: 'the spot (under the table)', onchange: (e) => this.app.onEdit('place', e.target.value) })),
+            el('div', { class: `sf-risk sf-risk-${risk.level.replace(/\s+/g, '-')}`, title: risk.factors.map(([t, n]) => `${t} ${n >= 0 ? '+' : ''}${n}`).join(', ') }, `${risk.level} here (difficulty ${risk.dc})`)));
+        if (s.injuries.length) this.body.append(el('div', { class: 'sf-conds' }, ...s.injuries.map((i) => el('span', { class: 'sf-cond sf-injury', title: 'Click to heal' , onclick: () => this.app.onHeal(i.name) }, `${i.name} (${i.attr} ${i.mod}) ×`))));
+        this.body.append(el('div', { class: 'sf-row sf-actions sf-time' },
+            btn('Eat', 'Eat a meal from your bag (food +4)', () => this.app.onEat()),
+            btn('Wait 1 h', 'Let an hour pass here', () => this.app.onWait(60)),
+            btn('Sleep', 'Sleep here until morning', () => this.app.onSleep())));
         if (s.notes.length) this.body.append(el('div', { class: 'sf-notes' }, ...s.notes.map((n, i) => el('div', { class: 'sf-note-line' }, n, btn('×', 'Forget', () => this.app.onNoteRemove(i), 'sf-mini')))));
-        this.body.append(el('div', { class: 'sf-row sf-actions' }, btn('↶ Undo', 'Undo the last change', () => this.app.onUndo()), btn('Rest', 'Restore the meters (a night of sleep)', () => this.app.onRest()), btn('New sheet', 'Start this chat over', () => this.app.onNew(), 'sf-danger')));
+        this.body.append(el('div', { class: 'sf-row sf-actions' }, btn('↶ Undo', 'Undo the last change', () => this.app.onUndo()), btn('Heal all', 'Restore every meter (a GM fiat)', () => this.app.onRest()), btn('New sheet', 'Start this chat over', () => this.app.onNew(), 'sf-danger')));
+    }
+
+    // -------------------------------------------------------------- map
+    mapTab(v) {
+        const nav = v.nav;
+        const s = v.sheet;
+        layout(nav);
+        const at = here(nav);
+        if (this.dest && !nav.places.some((p) => p.id === this.dest)) this.dest = null;
+        const path = at && this.dest && this.dest !== at.id ? findPath(nav, at.id, this.dest, s.height_cm) : null;
+        const canvas = el('canvas', { class: 'sf-map', width: MAP_W, height: MAP_H });
+        const env = { sheet: s, time: s.time, weather: v.weather };
+        drawMap(canvas, nav, { at: at?.id ?? null, dest: this.dest, path, env });
+        canvas.addEventListener('click', (e) => {
+            const r = canvas.getBoundingClientRect();
+            const p = hitPlace(nav, ((e.clientX - r.left) / r.width), ((e.clientY - r.top) / r.height));
+            if (p) { this.dest = p.id === at?.id ? null : p.id; this.refresh(); }
+        });
+        this.body.append(canvas);
+        this.body.append(el('div', { class: 'sf-row' }, el('span', { class: 'sf-clock' }, `🕑 ${clockText(s.time)}`), el('span', { class: 'sf-dim' }, ` · ${weatherLine(v.weather)}`)));
+        if (!nav.places.length) this.body.append(el('div', { class: 'sf-empty' }, 'No places yet. The story maps them as you learn of them (MAP and ROUTE tags), or add one below.'));
+        if (at) {
+            const risk = riskOf(at, env);
+            const ways = routesFrom(nav, at.id).map(({ route, to }) => ({ route, place: nav.places.find((q) => q.id === to) })).filter((w) => w.place);
+            this.body.append(el('div', { class: 'sf-here' },
+                el('div', {}, el('b', {}, at.name), el('span', { class: 'sf-dim' }, ` · ${KINDS[at.kind].label} · danger ${at.danger} · crowd ${at.crowd} · cover ${at.cover}`)),
+                el('div', { class: `sf-risk sf-risk-${risk.level.replace(/\s+/g, '-')}`, title: risk.factors.map(([t, n]) => `${t} ${n >= 0 ? '+' : ''}${n}`).join(', ') }, `${risk.level} here (difficulty ${risk.dc})`),
+                at.note ? el('div', { class: 'sf-dim' }, at.note) : null,
+                ways.length ? el('div', { class: 'sf-ways' }, ...ways.map((w) => el('button', { type: 'button', class: `sf-way${this.dest === w.place.id ? ' sf-on' : ''}`, onclick: () => { this.dest = w.place.id; this.refresh(); } }, `${w.place.name} · ${smallMinutes(w.route.giantMin, s.height_cm)} min${w.route.hazards.length ? ` · ${w.route.hazards.join(', ')}` : ''}`))) : el('div', { class: 'sf-dim' }, 'No known way out of here.')));
+        }
+        const dest = nav.places.find((p) => p.id === this.dest);
+        if (dest && at && dest !== at) {
+            const total = path ? path.reduce((a, l) => a + l.minutes, 0) : null;
+            const legs = path ? path.map((l) => { const p = nav.places.find((q) => q.id === l.to); return `${p?.name} (${l.minutes} min${l.route.hazards.length ? `; ${l.route.hazards.join(', ')}` : ''})`; }) : [];
+            this.body.append(el('div', { class: 'sf-plan' },
+                el('div', {}, el('b', {}, `To ${dest.name}`), path ? el('span', { class: 'sf-dim' }, ` · ${total} min on foot at your size, ${path.length} leg${path.length > 1 ? 's' : ''}`) : el('span', { class: 'sf-bad' }, ' · no known way there')),
+                path ? el('div', { class: 'sf-dim' }, `via ${legs.join(' → ')}`) : null,
+                el('div', { class: 'sf-row sf-actions' },
+                    path ? btn('Go', 'Travel there: each leg is rolled against its hazards, time passes, and the story tells what happened', () => { this.app.onTravel(dest.id); this.dest = null; }, 'sf-primary') : null,
+                    btn('Set as here', 'You are already there (no roll)', () => { this.app.onArrive(dest.id); this.dest = null; }),
+                    btn('Link from here', 'Add a way from where you are to this place', () => this.app.onLink(at.id, dest.id)))));
+        }
+        const roster = el('details', { class: 'sf-details', open: nav.places.length <= 3 }, el('summary', {}, `${nav.places.length} places, ${nav.routes.length} ways`));
+        for (const p of nav.places) {
+            roster.append(el('div', { class: `sf-place${p.id === at?.id ? ' sf-on' : ''}` },
+                el('span', { class: 'sf-place-name', onclick: () => { this.dest = p.id; this.refresh(); } }, p.name),
+                el('select', { class: 'sf-input sf-kind', onchange: (e) => this.app.onPlaceEdit(p.id, 'kind', e.target.value) }, ...Object.entries(KINDS).map(([k, d]) => el('option', { value: k, selected: k === p.kind }, d.label))),
+                el('label', { title: 'danger 0-5' }, 'D', el('input', { class: 'sf-input sf-tiny', type: 'number', min: 0, max: 5, value: p.danger, onchange: (e) => this.app.onPlaceEdit(p.id, 'danger', Number(e.target.value)) })),
+                el('label', { title: 'crowd 0-3' }, 'C', el('input', { class: 'sf-input sf-tiny', type: 'number', min: 0, max: 3, value: p.crowd, onchange: (e) => this.app.onPlaceEdit(p.id, 'crowd', Number(e.target.value)) })),
+                el('label', { title: 'cover 0-3' }, 'H', el('input', { class: 'sf-input sf-tiny', type: 'number', min: 0, max: 3, value: p.cover, onchange: (e) => this.app.onPlaceEdit(p.id, 'cover', Number(e.target.value)) })),
+                btn('×', 'Forget this place', () => this.app.onPlaceRemove(p.id), 'sf-mini sf-danger')));
+        }
+        this.body.append(roster);
+        const name = el('input', { class: 'sf-input sf-grow', placeholder: 'add a place' });
+        const add = () => { if (name.value.trim()) { this.app.onPlaceAdd(name.value.trim()); name.value = ''; } };
+        name.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+        this.body.append(el('div', { class: 'sf-row sf-add' }, name, btn('Add', 'Add the place', add, 'sf-primary')));
     }
 
     // -------------------------------------------------------------- bag

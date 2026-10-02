@@ -5,13 +5,16 @@
 
 import { num, str } from './src/json.js';
 import { ATTRS, d20, rng } from './src/dice.js';
-import { METERS, changeItem, changeMeter, createSheet, moneyText, normalizeSheet, setCondition, spendPoint, addXp } from './src/sheet.js';
-import { findNpc, normalizeNpc, upsertNpc } from './src/npcs.js';
+import { METERS, changeItem, changeMeter, createSheet, eat, findItem, moneyText, normalizeSheet, passTime, setCondition, spendPoint, addXp } from './src/sheet.js';
+import { normalizeNpc, upsertNpc } from './src/npcs.js';
 import { applyTags, parseTags } from './src/tags.js';
 import { buildPrompt } from './src/prompt.js';
 import { SIZE_CLASSES, heightFor } from './src/size.js';
 import { Panel } from './src/panel.js';
 import { decorateMessage, undecorate } from './src/chatview.js';
+import { createNav, findPath, here, normalizePlace, upsertPlace, upsertRoute } from './src/nav.js';
+import { rollWeather } from './src/clock.js';
+import { journey, sleepHere, waitHere } from './src/danger.js';
 
 const NAME = 'smallfolk';
 const META_KEY = 'smallfolk';
@@ -27,6 +30,9 @@ const DEFAULTS = {
     startMoney: 20,
     cardClass: 'roll', // size class for the character card: 'roll' or 1-6
     dice: true,
+    lethal: true, // health 0 can be the end
+    turnMinutes: 5, // time a reply covers when the model gives no TIME tag
+    sendMode: 'send', // 'send' or 'fill' for the messages travel/wait/sleep put in the chat
     hideTags: true,
     maxNpcs: 8,
     world: '',
@@ -76,8 +82,13 @@ function commit() {
     panel?.refresh();
 }
 
-const snapshot = (g) => JSON.stringify({ sheet: g.sheet, npcs: g.npcs, checks: g.checks ?? [] });
-function restore(g, snap) { const d = JSON.parse(snap); g.sheet = d.sheet; g.npcs = d.npcs; g.checks = d.checks; }
+const snapshot = (g) => JSON.stringify({ sheet: g.sheet, npcs: g.npcs, nav: g.nav, weather: g.weather, weatherDay: g.weatherDay, pending: g.pending, checks: g.checks ?? [] });
+function restore(g, snap) { const d = JSON.parse(snap); Object.assign(g, { sheet: d.sheet, npcs: d.npcs, nav: d.nav, weather: d.weather, weatherDay: d.weatherDay, pending: d.pending, checks: d.checks }); }
+
+/** New day, new weather. */
+function weatherCheck(g) {
+    if (g.sheet.time.day !== g.weatherDay) { g.weatherDay = g.sheet.time.day; g.weather = rollWeather(rng(g.seed + g.weatherDay * 131)()); log(`Day ${g.weatherDay}: the weather is ${g.weather}.`); }
+}
 function remember() { const g = game(); if (g) { undo.push(snapshot(g)); if (undo.length > 30) undo.shift(); } }
 
 function newGame() {
@@ -86,7 +97,7 @@ function newGame() {
     const s = cfg();
     const seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
     const r = rng(seed);
-    const g = { sheet: createSheet({ name: c.name1 || 'You', heightCm: s.heightCm, money: s.startMoney, currency: s.currency }), npcs: [], turn: 0, roll: null, seed, log: [], checks: [], applied: null };
+    const g = { sheet: createSheet({ name: c.name1 || 'You', heightCm: s.heightCm, money: s.startMoney, currency: s.currency }), npcs: [], nav: createNav(), weather: rollWeather(r()), weatherDay: 1, turn: 0, roll: null, seed, log: [], checks: [], applied: null, pending: null };
     for (const card of cards()) upsertNpc(g.npcs, { name: card.name, cls: s.cardClass === 'roll' ? null : Number(s.cardClass), card: true }, r);
     c.chatMetadata[META_KEY] = g;
     undo.length = 0;
@@ -101,7 +112,12 @@ function upgrade(g) {
     g.npcs = (g.npcs ?? []).map(normalizeNpc).filter(Boolean);
     g.turn = num(g.turn, 0, 1e9, 0);
     g.seed = num(g.seed, 1, 4294967295, 1);
-    g.log ??= []; g.checks ??= []; g.applied ??= null;
+    g.log ??= []; g.checks ??= []; g.applied ??= null; g.pending ??= null;
+    g.nav = g.nav && Array.isArray(g.nav.places) ? g.nav : createNav();
+    g.nav.places = g.nav.places.map(normalizePlace).filter(Boolean);
+    g.nav.routes = (g.nav.routes ?? []).filter((r) => r && g.nav.places.some((p) => p.id === r.a) && g.nav.places.some((p) => p.id === r.b));
+    if (!g.nav.places.some((p) => p.id === g.nav.at)) g.nav.at = null;
+    g.weather ??= 'clear'; g.weatherDay ??= g.sheet.time.day;
     if (g.roll !== null && g.roll !== undefined) g.roll = num(g.roll, 1, 20, null);
     return g;
 }
@@ -119,7 +135,7 @@ function promptText() {
     const g = game();
     const s = cfg();
     if (!g || !s.enabled) return '';
-    return buildPrompt({ sheet: g.sheet, npcs: g.npcs, roll: s.dice ? g.roll : null, checks: g.checks, user: ctx().name1 || g.sheet.name, settings: { world: str(s.world, 1500), maxNpcs: s.maxNpcs } });
+    return buildPrompt({ sheet: g.sheet, npcs: g.npcs, nav: g.nav, weather: g.weather, roll: s.dice ? g.roll : null, checks: g.checks, pending: g.pending, user: ctx().name1 || g.sheet.name, settings: { world: str(s.world, 1500), maxNpcs: s.maxNpcs, lethal: s.lethal } });
 }
 
 function updateInjection() {
@@ -158,13 +174,17 @@ function onMessageReceived(id) {
     if (g.applied && g.applied.id === id && g.applied.snap) restore(g, g.applied.snap);
     const snap = snapshot(g);
     const tags = parseTags(text);
-    if (tags.length) {
-        remember();
-        const lines = applyTags(g, tags, { r: rng((g.seed ^ (id * 2654435761)) >>> 0) });
-        for (const l of lines) log(l.text);
-        g.applied = { id, snap };
-        commit();
-    } else if (g.applied?.id === id) { g.applied = { id, snap }; commit(); }
+    remember();
+    const lines = applyTags(g, tags, { r: rng((g.seed ^ (id * 2654435761)) >>> 0) });
+    if (!tags.some((t) => t.type === 'time') && Number(cfg().turnMinutes) > 0) {
+        const p = here(g.nav);
+        for (const n of passTime(g.sheet, Number(cfg().turnMinutes), { weather: g.weather, outside: p ? !['indoor', 'shop', 'hideout'].includes(p.kind) : false })) lines.push({ kind: 'bad', text: n });
+    }
+    for (const l of lines) log(l.text);
+    g.pending = null;
+    weatherCheck(g);
+    g.applied = { id, snap };
+    commit();
     setTimeout(() => decorate(id), 30);
 }
 
@@ -198,8 +218,46 @@ function loadChat() {
 const actions = {
     view() {
         const g = game();
-        return { sheet: g?.sheet ?? null, npcs: g?.npcs ?? [], log: g?.log ?? [], checks: g?.checks ?? [], roll: cfg().dice ? g?.roll ?? null : null, moneyText: g ? moneyText(g.sheet) : '', hint: hasChat() ? 'No sheet in this chat yet.' : 'Open a chat first.' };
+        return { sheet: g?.sheet ?? null, npcs: g?.npcs ?? [], nav: g?.nav ?? createNav(), weather: g?.weather ?? 'clear', log: g?.log ?? [], checks: g?.checks ?? [], roll: cfg().dice ? g?.roll ?? null : null, moneyText: g ? moneyText(g.sheet) : '', hint: hasChat() ? 'No sheet in this chat yet.' : 'Open a chat first.' };
     },
+    onEat() {
+        const g = game(); if (!g) return;
+        const food = g.sheet.items.find((i) => /bread|crumb|cheese|food|meal|ration|apple|berry|berries|nut|meat|cake|biscuit|seed|fruit|crust/i.test(i.name));
+        if (!food) { toast('warning', 'Nothing to eat in your bag. Add a food item, or let the story feed you.'); return; }
+        remember(); changeItem(g.sheet, food.name, -1); eat(g.sheet, 4); log(`Ate ${food.name}.`); commit();
+        sendToChat(`*${g.sheet.name} eats some of the ${food.name}.*`);
+    },
+    onWait(minutes) {
+        const g = game(); if (!g) return;
+        remember();
+        const text = waitHere(g, minutes, rng(Date.now() >>> 0));
+        g.pending = text; weatherCheck(g); log(text); commit();
+        sendToChat(`*${g.sheet.name} waits where he is for ${Math.round(minutes / 60)} hour${minutes >= 120 ? 's' : ''}.*`);
+    },
+    onSleep() {
+        const g = game(); if (!g) return;
+        remember();
+        const text = sleepHere(g, rng(Date.now() >>> 0));
+        g.pending = text; weatherCheck(g); log(text); commit();
+        sendToChat(`*${g.sheet.name} finds the best spot he can and sleeps until morning.*`);
+    },
+    onTravel(destId) {
+        const g = game(); if (!g) return;
+        const from = here(g.nav);
+        const path = from ? findPath(g.nav, from.id, destId, g.sheet.height_cm) : null;
+        const dest = g.nav.places.find((p) => p.id === destId);
+        if (!path || !dest) { toast('warning', 'No known way there.'); return; }
+        remember();
+        const out = journey(g, path, rng(Date.now() >>> 0));
+        g.pending = out.text; g.sheet.place = ''; weatherCheck(g); log(out.text); commit();
+        sendToChat(`*${g.sheet.name} sets out for ${dest.name}${path.length > 1 ? `, by way of ${path.slice(0, -1).map((l) => g.nav.places.find((p) => p.id === l.to)?.name).filter(Boolean).join(' and ')}` : ''}.*`);
+    },
+    onArrive(id) { const g = game(); const p = g?.nav.places.find((x) => x.id === id); if (!p) return; remember(); g.nav.at = p.id; p.visits += 1; g.sheet.place = ''; commit(); },
+    onLink(a, b) { const g = game(); if (!g) return; const pa = g.nav.places.find((p) => p.id === a), pb = g.nav.places.find((p) => p.id === b); if (!pa || !pb) return; remember(); upsertRoute(g.nav, { from: pa.name, to: pb.name, giantMin: 5 }); commit(); },
+    onPlaceAdd(name) { const g = game(); if (!g) return; remember(); const { place } = upsertPlace(g.nav, { name }); if (place && !g.nav.at) g.nav.at = place.id; commit(); },
+    onPlaceEdit(id, field, value) { const g = game(); const p = g?.nav.places.find((x) => x.id === id); if (!p) return; remember(); Object.assign(p, normalizePlace({ ...p, [field]: value }), { x: p.x, y: p.y }); commit(); },
+    onPlaceRemove(id) { const g = game(); if (!g) return; remember(); g.nav.places = g.nav.places.filter((p) => p.id !== id); g.nav.routes = g.nav.routes.filter((r) => r.a !== id && r.b !== id); if (g.nav.at === id) g.nav.at = null; commit(); },
+    onHeal(name) { const g = game(); if (!g) return; remember(); g.sheet.injuries = g.sheet.injuries.filter((i) => i.name !== name); commit(); },
     onPrefs(p) { cfg().panel = { ...cfg().panel, ...p }; save(); },
     onClose() { setPanelOpen(false); },
     onNew() { newGame(); },
@@ -215,7 +273,6 @@ const actions = {
         if (field === 'name') g.sheet.name = str(value, 60) || g.sheet.name;
         else if (field === 'height_cm') g.sheet.height_cm = num(value, 30, 300, g.sheet.height_cm);
         else if (field === 'money') g.sheet.money = num(value, 0, 1e9, g.sheet.money);
-        else if (field === 'clock') g.sheet.clock = str(value, 60);
         else if (field === 'place') g.sheet.place = str(value, 120);
         commit();
     },
@@ -229,6 +286,16 @@ const actions = {
     onNpcRemove(id) { const g = game(); if (!g) return; remember(); g.npcs = g.npcs.filter((x) => x.id !== id); commit(); },
     onNpcEdit(id, field, value) { const g = game(); const n = g?.npcs.find((x) => x.id === id); if (!n) return; n[field] = str(value, field === 'note' ? 300 : 120); commit(); },
 };
+
+/** Put a line in the chat as the user (sent at once, or left in the box to edit). */
+function sendToChat(text) {
+    const box = document.getElementById('send_textarea');
+    if (!box) return;
+    box.value = text;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    if (cfg().sendMode === 'send') document.getElementById('send_but')?.click();
+    else box.focus();
+}
 
 // ------------------------------------------------------------------ window, menu, commands
 
@@ -256,7 +323,7 @@ function addMenu() {
 function registerCommands() {
     const c = ctx();
     const { SlashCommandParser, SlashCommand, SlashCommandArgument, ARGUMENT_TYPE } = c;
-    const help = 'Smallfolk: <code>/sf</code> opens the sheet; <code>/sf new</code> starts over; <code>/sf health -2</code>, <code>/sf stamina +1</code>, <code>/sf nerve -1</code>, <code>/sf money +5</code>, <code>/sf item +rope x2</code>, <code>/sf item -rope</code>, <code>/sf cond +soaked</code>, <code>/sf xp +10</code>, <code>/sf npc Mara class 3</code>, <code>/sf time Day 2, evening</code>, <code>/sf place under the table</code>, <code>/sf note ...</code>, <code>/sf rest</code>, <code>/sf undo</code>, <code>/sf roll</code>.';
+    const help = 'Smallfolk: <code>/sf</code> opens the sheet; <code>/sf new</code> starts over; <code>/sf go &lt;place&gt;</code>, <code>/sf wait [minutes]</code>, <code>/sf sleep</code>, <code>/sf eat</code>; <code>/sf health -2</code> (stamina, nerve, food, warmth), <code>/sf money +5</code>, <code>/sf item +rope x2</code>, <code>/sf cond +soaked</code>, <code>/sf xp +10</code>, <code>/sf npc Mara class 3</code>, <code>/sf time +2 hours</code>, <code>/sf place Market square: under a cart</code>, <code>/sf map Market square: square, danger 3</code>, <code>/sf route A - B: 5 min, hazards: cats</code>, <code>/sf injury sprained ankle: agility -1, 2 days</code>, <code>/sf note ...</code>, <code>/sf rest</code>, <code>/sf undo</code>, <code>/sf roll</code>.';
     const callback = async (_args, value) => {
         const [cmd, ...rest] = String(value ?? '').trim().split(/\s+/);
         const arg = rest.join(' ');
@@ -268,7 +335,11 @@ function registerCommands() {
             case 'rest': actions.onRest(); return '';
             case 'undo': actions.onUndo(); return '';
             case 'roll': if (g) { g.roll = d20(Math.random()); commit(); return String(g.roll); } return 'no sheet';
-            case 'health': case 'hp': case 'stamina': case 'nerve': case 'money': case 'item': case 'cond': case 'xp': case 'npc': case 'time': case 'place': case 'note': case 'check': {
+            case 'go': { if (!g) return 'no sheet'; const p = g.nav.places.find((x) => x.name.toLowerCase().includes(arg.toLowerCase())); if (!p) return `no place called ${arg}`; actions.onTravel(p.id); return p.name; }
+            case 'wait': actions.onWait(Math.max(10, Number(arg) || 60)); return '';
+            case 'sleep': actions.onSleep(); return '';
+            case 'eat': actions.onEat(); return '';
+            case 'health': case 'hp': case 'stamina': case 'nerve': case 'food': case 'warmth': case 'money': case 'item': case 'cond': case 'xp': case 'npc': case 'time': case 'place': case 'map': case 'route': case 'injury': case 'note': case 'check': {
                 if (!g) return 'no sheet';
                 const tags = parseTags(`[${word.toUpperCase()} ${arg}]`);
                 if (!tags.length) return `could not read "${arg}"`;
@@ -283,7 +354,7 @@ function registerCommands() {
     };
     try {
         if (SlashCommandParser?.addCommandObject && SlashCommand?.fromProps) {
-            SlashCommandParser.addCommandObject(SlashCommand.fromProps({ name: 'sf', callback, helpString: help, unnamedArgumentList: [SlashCommandArgument.fromProps({ description: 'new | health|stamina|nerve|money|xp ±n | item ±name [xN] | cond ±name | npc Name [class N] | time … | place … | note … | rest | undo | roll', typeList: [ARGUMENT_TYPE.STRING], isRequired: false })] }));
+            SlashCommandParser.addCommandObject(SlashCommand.fromProps({ name: 'sf', callback, helpString: help, unnamedArgumentList: [SlashCommandArgument.fromProps({ description: 'new | go <place> | wait [min] | sleep | eat | health|stamina|nerve|food|warmth|money|xp ±n | item ±name [xN] | cond ±name | npc Name [class N] | time … | place … | map … | route A - B: … | injury … | note … | rest | undo | roll', typeList: [ARGUMENT_TYPE.STRING], isRequired: false })] }));
         } else if (typeof c.registerSlashCommand === 'function') c.registerSlashCommand('sf', (a, v) => callback(a, v), [], help);
     } catch (err) { console.warn(LOG, 'Could not register /sf', err); }
 }
@@ -308,7 +379,12 @@ function settingsHtml() {
       <label class="checkbox_label"><input type="checkbox" data-key="autoStart"> Start a sheet when a chat opens</label>
       <label class="checkbox_label"><input type="checkbox" data-key="autoOpen"> Open the sheet window when a chat with a sheet opens</label>
       <label class="checkbox_label"><input type="checkbox" data-key="dice"> Give the model a d20 for each of your turns (uncertain actions use it)</label>
+      <label class="checkbox_label"><input type="checkbox" data-key="lethal"> Lethal: at 0 health he can die (off: he is out cold and wakes worse off)</label>
       <label class="checkbox_label"><input type="checkbox" data-key="hideTags"> Hide the bookkeeping tags in the chat (shown as small chips instead)</label>
+      <div class="sf-row">
+        <label>Minutes a reply covers when the model gives no time <input class="text_pole" type="number" min="0" max="120" data-key="turnMinutes"></label>
+        <label>Travel, wait and sleep messages <select class="text_pole" data-key="sendMode">${options([['send', 'Send at once'], ['fill', 'Put in the message box to edit']], s.sendMode)}</select></label>
+      </div>
       <h4>New sheets</h4>
       <div class="sf-row">
         <label>Your height, cm <input class="text_pole" type="number" min="30" max="300" data-key="heightCm"></label>
@@ -338,7 +414,7 @@ function bindSettings(root) {
         input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
             cfg()[key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
             save();
-            if (['enabled', 'dice', 'world', 'maxNpcs', 'injectPosition', 'injectDepth', 'injectRole'].includes(key)) updateInjection();
+            if (['enabled', 'dice', 'lethal', 'world', 'maxNpcs', 'injectPosition', 'injectDepth', 'injectRole'].includes(key)) updateInjection();
             if (key === 'hideTags') decorateAll();
             panel?.refresh();
         });
