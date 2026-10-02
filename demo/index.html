@@ -1,0 +1,65 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sole Survivor demo</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="../style.css">
+<style>body{margin:0;background:#15171c;color:#eee;font-family:sans-serif} .menu_button{background:#333;color:#eee;border:1px solid #555;border-radius:6px;cursor:pointer} .text_pole{background:#222;color:#eee;border:1px solid #555;border-radius:4px;padding:3px}</style>
+</head><body>
+<script type="module">
+import { Panel } from '../src/panel.js';
+import { normalizeSheet } from '../src/sheet.js';
+import { normalizeWorld, createState, isOpenNow, isUnlocked, closedHint, whoIsAt, findLocation } from '../src/world.js';
+import { odds } from '../src/rules.js';
+import { parseReply } from '../src/scene.js';
+
+const card = normalizeSheet({ name: 'Marisol Reyes', age: 21, from: 'Spain', archetype: 'Princess', job: 'sorority president', hook: "Daddy's money and a tennis scholarship she doesn't need.", shoes: 'white platform sneakers', socks: 'pink ankle socks with a crown logo', dials: { bossy: 7, bratty: 10, friendly: 2, smelly: 9, sweaty: 8, dirty: 4 }, odor: { cheesy: 50, lemony: 20, fishy: 10, meaty: 20 }, wants: { verbs: ['rub', 'sniff'], hates: ['lick'], trigger: 'being ignored' } }, { card: true });
+const world = normalizeWorld({
+  town: { name: 'Port Sock', vibe: 'seaside college town', intro: 'The ferry drops you at the pier with one bag and a rent you cannot afford.' },
+  locations: [
+    { id: 'home', name: 'Your flat', type: 'home' },
+    { id: 'zbz', name: 'Sorority House', type: 'sorority' },
+    { id: 'gym', name: 'Iron Sole Gym', type: 'gym' },
+    { id: 'cinema', name: 'Reel Cinema', type: 'cinema', open: { when: 'day', day: 3 } },
+    { id: 'laundro', name: 'Suds & Socks', type: 'laundromat', open: { when: 'quest', quest: 'bag' } },
+    { id: 'cafe', name: 'Bean Cafe', type: 'cafe' },
+    { id: 'burger', name: 'Big Bun', type: 'burger' },
+    { id: 'park', name: 'Fountain Park', type: 'park' },
+    { id: 'light', name: 'Lighthouse', type: 'lighthouse', open: { when: 'favor', who: 'marisol_reyes', min: 6 } },
+    { id: 'farm', name: 'Allotment', type: 'farm' },
+    { id: 'spa', name: 'Toe Spa', type: 'spa', open: { when: 'flag', flag: 'spa', hint: 'Members only.' } },
+    { id: 'shoes', name: 'Sole Mates', type: 'shoes' },
+    { id: 'bus', name: 'Bus Stop', type: 'bus' },
+  ],
+  residents: [
+    { id: 'marisol_reyes', name: 'Marisol Reyes', home: 'zbz', schedule: { morning: 'gym', afternoon: 'cafe', evening: 'zbz', night: 'zbz' } },
+    { name: 'Bea Kowalski', archetype: 'Drill', job: 'gym coach', home: 'gym', schedule: { morning: 'gym', afternoon: 'gym', evening: 'burger' }, shoes: 'sweaty trainers', socks: 'grey sport socks' },
+    { name: 'Noor Haddad', archetype: 'Viper', job: 'barista', home: 'cafe', schedule: { morning: 'cafe', afternoon: 'cafe', evening: 'park' } },
+  ],
+  quests: [{ id: 'bag', title: 'Carry the bag', giver: 'marisol_reyes', goal: 'Carry her gym bag across town without complaining.', reward: { opens: 'laundro', favor: 2 } }],
+}, { cardSheets: [card] });
+const state = createState(world, { seed: 7 });
+state.at = new URLSearchParams(location.search).get('at') || 'home';
+state.slot = new URLSearchParams(location.search).get('slot') || 'morning';
+state.quests.bag.status = 'active';
+const reply = `*The gym smells of rubber and worse. Marisol has her sneakers off, feet up on the bench.*
+Marisol [smug]: "Oh. It's you. Hold this."
+Marisol [annoyed]: "Don't just stand there breathing on me."
+[CHOICES]
+1. (Sniff check) I lean in and breathe in her socks.
+2. I offer to carry her gym bag.
+3. (Talk check) I ask about the laundromat.
+4. I leave.`;
+const p = parseReply(reply);
+if (state.at !== 'home') state.scene = { lines: p.lines, narration: p.narration, choices: p.choices, expressions: p.expressions };
+const view = () => ({ chatOpen: true, cast: ['Marisol Reyes'], world, state, layoutSeed: 7, gallery: [], log: ['started'], user: 'Tom',
+  present: (() => { const h = findLocation(world, state.at); return h && (isOpenNow(world, state, h) || h.type === 'home') ? whoIsAt(world, h.id, state.slot) : []; })(),
+  statusOf: (l) => !isUnlocked(world, state, l) ? 'locked' : !isOpenNow(world, state, l) ? 'closed' : 'open',
+  hint: (l) => closedHint(world, state, l), odds: (s, k) => odds(state, s, k) ?? 0.5,
+  expressionOf: (s) => state.scene?.expressions?.[s.name.split(' ')[0]] ?? 'neutral',
+  spriteUrl: () => '', feetUrl: () => '', feetState: () => 'socks', backgroundUrl: () => '', spritesBusy: () => false });
+const app = { view, onTravel: (id) => { state.at = id; panel.setTab('scene'); }, onWait() {}, onSleep() {}, onLook() {}, onChoice: (c) => panel.setStatus(`chose: ${c.text}`), onFreeText() {}, onVerb: (v, id) => panel.setStatus(`${v} ${id}`), onNewGame() {}, onMakeSprites() {}, onMakeFeet() {}, onMakeBackground() {}, onPicture() {}, onEditDial() {}, onLayout() {}, onClose() {}, onRewind() {}, onExport() {}, onImport() {} };
+const panel = new Panel(app, { left: 10, top: 10, width: 760, height: 700, tab: new URLSearchParams(location.search).get('tab') || 'map' });
+panel.mount(document.body);
+panel.show();
+window.panel = panel;
+</script>
+</body></html>

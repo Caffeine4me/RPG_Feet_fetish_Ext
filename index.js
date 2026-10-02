@@ -259,10 +259,10 @@ const VERB_TEXT = {
 };
 
 /** Resolve a check now, store the outcome for the brief, and send the move. */
-function act({ text, kind = null, targetId = null }) {
+function act({ text, kind = null, targetId = null, snap = true }) {
     const g = game();
     if (!g) return;
-    snapshot();
+    if (snap) snapshot();
     const here = present();
     const target = (targetId && findResident(g.world, targetId)) || here[0] || null;
     if (kind && target) {
@@ -296,7 +296,7 @@ const actions = {
         }
         commit();
         panel?.setTab('scene');
-        act({ text: `I head over to ${loc.name}${t.open ? '' : ' and find it closed'}.` });
+        act({ text: `I head over to ${loc.name}${t.open ? '' : ' and find it closed'}.`, snap: false });
     },
     onWait() {
         const g = game();
@@ -306,7 +306,7 @@ const actions = {
         log(`Waited until ${g.state.slot}.`);
         commit();
         const here = present();
-        if (here.length) act({ text: `I hang around ${findLocation(g.world, g.state.at)?.name ?? 'here'} until the ${g.state.slot}.` });
+        if (here.length) act({ text: `I hang around ${findLocation(g.world, g.state.at)?.name ?? 'here'} until the ${g.state.slot}.`, snap: false });
         else panel?.setStatus(`It is now ${g.state.slot}.`);
     },
     onSleep() {
