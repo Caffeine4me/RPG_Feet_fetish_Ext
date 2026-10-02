@@ -103,14 +103,27 @@ export function findPath(nav, fromId, toId, playerCm = PLAYER_CM) {
  * place they connect to (or the middle), nudged apart. Deterministic for a given order.
  */
 export function layout(nav) {
-    const seedAngle = (id) => [...id].reduce((a, ch) => a + ch.charCodeAt(0) * 7, 0) % 360;
-    const placed = () => nav.places.filter((p) => p.x !== null && p.y !== null);
-    for (const p of nav.places) {
-        if (p.x !== null && p.y !== null) continue;
-        const anchor = routesFrom(nav, p.id).map(({ to }) => nav.places.find((q) => q.id === to)).find((q) => q && q.x !== null && q.y !== null);
-        const ang = (seedAngle(p.id) * Math.PI) / 180;
-        const base = anchor ? { x: anchor.x, y: anchor.y, r: 0.3 } : { x: 0.5, y: 0.5, r: placed().length ? 0.35 : 0 };
-        p.x = base.x + Math.cos(ang) * base.r; p.y = base.y + Math.sin(ang) * base.r;
+    // New places: breadth-first from the first place, left to right by depth, siblings spread top to bottom.
+    const fresh = nav.places.filter((p) => p.x === null || p.y === null);
+    if (fresh.length) {
+        const depth = new Map();
+        const roots = nav.places.filter((p) => !fresh.includes(p));
+        const queue = roots.length ? roots.map((p) => [p, 0]) : [[nav.places[0], 0]];
+        for (const [p, d] of queue) depth.set(p.id, d);
+        while (queue.length) {
+            const [p, d] = queue.shift();
+            for (const { to } of routesFrom(nav, p.id)) if (!depth.has(to)) { depth.set(to, d + 1); queue.push([nav.places.find((q) => q.id === to), d + 1]); }
+        }
+        for (const p of fresh) if (!depth.has(p.id)) depth.set(p.id, 1 + Math.max(0, ...[...depth.values()]));
+        const maxD = Math.max(1, ...fresh.map((p) => depth.get(p.id)));
+        const byDepth = new Map();
+        for (const p of fresh) { const d = depth.get(p.id); byDepth.set(d, [...(byDepth.get(d) ?? []), p]); }
+        for (const [d, list] of byDepth) {
+            list.forEach((p, i) => {
+                p.x = roots.length ? Math.min(0.92, 0.15 + (d / Math.max(maxD, 3)) * 0.77) : 0.12 + (d / Math.max(maxD, 3)) * 0.8;
+                p.y = list.length === 1 ? 0.5 : 0.18 + (i / (list.length - 1)) * 0.64;
+            });
+        }
     }
     // relax: push places apart, pull linked ones to a comfortable distance, stay inside the frame
     const AR = MAP_ASPECT;

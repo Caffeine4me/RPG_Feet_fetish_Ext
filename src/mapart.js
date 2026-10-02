@@ -24,10 +24,9 @@ export function drawMap(canvas, nav, { at = null, dest = null, path = null, env 
         dotted(ctx, pos(a), pos(b), onPath.has(r) ? '#f0d27a' : '#4a5068', onPath.has(r) ? 2 : 1);
     }
     const sorted = [...nav.places].sort((a, b) => a.x - b.x);
-    for (const p of nav.places) {
+    for (const [i, p] of sorted.entries()) {
         const { x, y } = pos(p);
         // labels go under the marker, or above it when a close neighbour to the left already has one under
-        const i = sorted.indexOf(p);
         const left = sorted[i - 1];
         const crowded = left && Math.abs(left.x - p.x) * W < 70 && Math.abs(left.y - p.y) * H < 24;
         p._above = crowded ? !left._above : false;
