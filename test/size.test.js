@@ -37,3 +37,13 @@ test('player text describes the common world at his size', () => {
     assert.match(t, /You are 91 cm \(3 ft\) tall/);
     assert.match(t, /a coin is/);
 });
+
+test('senses and physics', async () => {
+    const { apparentTo, physicsText, senseText, weightKg } = await import('../src/size.js');
+    assert.equal(weightKg(366), 699);
+    assert.equal(apparentTo({ height_cm: 950 }, 91).word, 'a mouse');
+    assert.equal(apparentTo({ height_cm: 366 }, 91).word, 'a cat');
+    assert.match(senseText({ height_cm: 950 }, 91), /She weighs about 12\.2 tonnes; you feel her steps through the floor/);
+    assert.match(senseText({ height_cm: 950 }, 91), /she notices you when you move/);
+    assert.match(physicsText(91), /Falls: 1\.8 m \(6 ft\) is a hard landing/);
+});

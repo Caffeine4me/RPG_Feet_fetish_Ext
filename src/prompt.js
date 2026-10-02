@@ -6,7 +6,7 @@ import { TAG_HELP } from './tags.js';
 import { sheetText } from './sheet.js';
 import { npcsText } from './npcs.js';
 import { diceLine } from './dice.js';
-import { playerText, rarityTable } from './size.js';
+import { physicsText, playerText, rarityTable } from './size.js';
 import { here, navText } from './nav.js';
 import { clockText, weatherLine } from './clock.js';
 import { threatText, triggers } from './danger.js';
@@ -21,7 +21,7 @@ export function buildPrompt({ sheet, npcs = [], nav = null, weather = 'clear', r
     const at = nav ? here(nav) : null;
     const env = { sheet, time: sheet.time, weather };
     parts.push(`NOW: ${clockText(sheet.time)}; weather ${weatherLine(weather)}.${nav ? `\n${navText(nav, playerCm)}` : ''}${sheet.place ? `\nSpot: ${sheet.place}.` : ''}\n${threatText(at, env)}`);
-    parts.push(`YOU (${user}): ${playerText(playerCm)}\n${sheetText(sheet)}`);
+    parts.push(`YOU (${user}): ${playerText(playerCm)} ${physicsText(playerCm)}\n${sheetText(sheet)}`);
     if (npcs.length) parts.push(`GIANTS ${user} KNOWS (sizes are fixed; use them):\n${npcsText(npcs, { playerCm, max: Number(settings.maxNpcs) || 8 })}`);
     const must = triggers(sheet, { lethal });
     const lines = [];

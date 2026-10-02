@@ -16,6 +16,16 @@ Three loops:
 
 The player defaults to 91 cm. His height is on the sheet and editable, and the whole prompt and the drawing follow it.
 
+## Senses and physics
+
+Beyond lengths, `src/size.js` gives each giant a weight (70 kg scaled by the cube of her height), what the player looks like to her (his height divided by her scale factor, named: a cat at 40 cm, a mouse at 15, a beetle at 8), whether she can hear him from the floor, how her steps and voice arrive at his size, and what sits at his eye level. `physicsText` gives the player's own numbers: falls at two, four and eight times his height, carrying a quarter of his weight, water deeper than six tenths of his height. The point is to hand the model specifics it would otherwise fudge.
+
+Being carried is state, not just a condition: who has him and where. It raises the difficulty of the spot (he is at her mercy) and the prompt says what it limits.
+
+## Window
+
+The sheet opens in its own browser window by default (`window.open`, with the extension's stylesheet linked into the new document; the panel code creates its elements in whichever document it was mounted in). The floating panel over the chat remains as the fallback when pop-ups are blocked and as a choice in the settings.
+
 ## Sheet
 
 Meters: health, stamina, nerve, each cur/max. Attributes: might, agility, wits, charm, 1 to 5 by default (0 to 9 allowed), added to a d20. XP: 100 per level, one attribute point per level. Money is a number with a currency string. Items: name, quantity, note. Conditions: a set of short words. Clock and place are free text the model keeps up to date with TIME and PLACE tags. Notes are one-liners.

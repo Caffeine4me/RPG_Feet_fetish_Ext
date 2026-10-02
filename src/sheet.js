@@ -34,6 +34,7 @@ export function createSheet({ name = 'You', heightCm = PLAYER_CM, money = 20, cu
         time: createTime(), // {day, min}
         place: '', // the spot within the place: "under the table"
         injuries: [], // {name, attr, mod, until (absolute minutes)}
+        carried: null, // {by, where} when a giant has him
         lastMeal: 0, wokeAt: 0, // absolute minutes
     };
 }
@@ -56,9 +57,16 @@ export function normalizeSheet(raw) {
     if (raw?.clock && !raw?.time) { const t = parseTime(raw.clock, s.time); if (t?.set) s.time = t.set; }
     s.place = str(raw?.place, 120);
     s.injuries = (Array.isArray(raw?.injuries) ? raw.injuries : []).map((i) => ({ name: str(i?.name, 40), attr: ATTRS.includes(i?.attr) ? i.attr : 'agility', mod: num(i?.mod, -5, 0, -1), until: num(i?.until, 0, 1e9, 0) })).filter((i) => i.name).slice(0, 8);
+    s.carried = raw?.carried?.by ? { by: str(raw.carried.by, 60), where: str(raw.carried.where, 80) } : null;
     s.lastMeal = num(raw?.lastMeal, 0, 1e9, absMin(s.time));
     s.wokeAt = num(raw?.wokeAt, 0, 1e9, absMin(s.time));
     return s;
+}
+
+/** A giant picks him up (or puts him down with by = null). */
+export function setCarried(sheet, by, where = '') {
+    sheet.carried = by ? { by: str(by, 60), where: str(where, 80) } : null;
+    setCondition(sheet, 'carried', Boolean(by));
 }
 
 /** Attributes after injuries, tiredness and hunger. */
@@ -210,6 +218,7 @@ export function sheetText(sheet) {
     ];
     if (sheet.conditions.length) lines.push(`Conditions: ${sheet.conditions.join(', ')}.`);
     if (sheet.injuries.length) lines.push(`Injuries: ${sheet.injuries.map((i) => `${i.name} (${i.attr} ${i.mod})`).join(', ')}.`);
+    if (sheet.carried) lines.push(`Carried by ${sheet.carried.by}${sheet.carried.where ? `, ${sheet.carried.where}` : ''}: he goes where she goes, at her pace, and getting down is her choice or a climb.`);
     if (sheet.notes.length) lines.push(`Notes: ${sheet.notes.join(' | ')}`);
     return lines.join('\n');
 }

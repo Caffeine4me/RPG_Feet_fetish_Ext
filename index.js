@@ -5,7 +5,7 @@
 
 import { num, str } from './src/json.js';
 import { ATTRS, d20, rng } from './src/dice.js';
-import { METERS, changeItem, changeMeter, createSheet, eat, findItem, moneyText, normalizeSheet, passTime, setCondition, spendPoint, addXp } from './src/sheet.js';
+import { METERS, changeItem, changeMeter, createSheet, eat, moneyText, normalizeSheet, passTime, setCarried, setCondition, spendPoint, addXp } from './src/sheet.js';
 import { normalizeNpc, upsertNpc } from './src/npcs.js';
 import { applyTags, parseTags } from './src/tags.js';
 import { buildPrompt } from './src/prompt.js';
@@ -25,6 +25,7 @@ const DEFAULTS = {
     enabled: true,
     autoStart: true, // start a sheet when a chat opens
     autoOpen: false, // open the window when a chat with a sheet opens
+    windowMode: 'popout', // 'popout': its own browser window; 'float': a panel over the chat
     heightCm: 91, // 3 ft
     currency: '$',
     startMoney: 20,
@@ -51,6 +52,7 @@ const save = () => ctx().saveSettingsDebounced();
 const toast = (kind, text) => globalThis.toastr?.[kind]?.(text, 'Smallfolk');
 
 let panel = null;
+let popup = null; // the sheet's own browser window, when open
 const undo = [];
 
 // ------------------------------------------------------------------ game data in the chat
@@ -257,6 +259,8 @@ const actions = {
     onPlaceAdd(name) { const g = game(); if (!g) return; remember(); const { place } = upsertPlace(g.nav, { name }); if (place && !g.nav.at) g.nav.at = place.id; commit(); },
     onPlaceEdit(id, field, value) { const g = game(); const p = g?.nav.places.find((x) => x.id === id); if (!p) return; remember(); Object.assign(p, normalizePlace({ ...p, [field]: value }), { x: p.x, y: p.y }); commit(); },
     onPlaceRemove(id) { const g = game(); if (!g) return; remember(); g.nav.places = g.nav.places.filter((p) => p.id !== id); g.nav.routes = g.nav.routes.filter((r) => r.a !== id && r.b !== id); if (g.nav.at === id) g.nav.at = null; commit(); },
+    onCarried(by, where = '') { const g = game(); if (!g) return; remember(); setCarried(g.sheet, by, where); commit(); },
+    onPopout(want) { cfg().windowMode = want ? 'popout' : 'float'; save(); closePanel(); setPanelOpen(true); },
     onHeal(name) { const g = game(); if (!g) return; remember(); g.sheet.injuries = g.sheet.injuries.filter((i) => i.name !== name); commit(); },
     onPrefs(p) { cfg().panel = { ...cfg().panel, ...p }; save(); },
     onClose() { setPanelOpen(false); },
@@ -299,9 +303,48 @@ function sendToChat(text) {
 
 // ------------------------------------------------------------------ window, menu, commands
 
+function closePanel() {
+    if (popup && !popup.closed) { const p = popup; popup = null; p.close(); }
+    popup = null;
+    panel?.root?.remove();
+    panel = null;
+}
+
+/** Open the sheet in its own browser window; falls back to the floating panel when blocked. */
+function openPopout() {
+    const base = new URL('.', import.meta.url).href;
+    const p = cfg().panel;
+    const w = window.open('', 'smallfolk_sheet', `popup=yes,width=${p.popW || 400},height=${p.popH || 760},left=${p.popX ?? 40},top=${p.popY ?? 40},resizable=yes,scrollbars=yes`);
+    if (!w) return false;
+    const d = w.document;
+    if (!d.getElementById('sf_popout_css')) {
+        d.open();
+        d.write(`<!doctype html><html><head><meta charset="utf-8"><title>Smallfolk</title><link id="sf_popout_css" rel="stylesheet" href="${base}style.css"></head><body class="sf-popout-body"></body></html>`);
+        d.close();
+    }
+    d.body.replaceChildren();
+    panel = new Panel(actions, p, { popout: true, document: d });
+    panel.mount(d.body);
+    popup = w;
+    w.addEventListener('beforeunload', () => {
+        if (popup !== w) return;
+        try { Object.assign(cfg().panel, { popW: w.outerWidth, popH: w.outerHeight, popX: w.screenX, popY: w.screenY }); } catch { /* cross-window quirks */ }
+        popup = null; panel = null; cfg().panel.open = false; save();
+    });
+    try { w.focus(); } catch { /* ignore */ }
+    return true;
+}
+
 function setPanelOpen(open) {
-    if (open && !panel) { panel = new Panel(actions, cfg().panel); panel.mount(document.body); }
-    if (panel) { if (open) panel.show(); else panel.hide(); }
+    if (open) {
+        if (popup && popup.closed) { popup = null; panel = null; }
+        if (!panel) {
+            if (cfg().windowMode === 'popout' && !openPopout()) { toast('warning', 'The browser blocked the window; showing the sheet over the chat instead. Allow pop-ups for this site to get a separate window.'); cfg().windowMode = 'float'; }
+            if (!panel) { panel = new Panel(actions, cfg().panel); panel.mount(document.body); }
+        }
+        panel.show();
+        if (popup) { try { popup.focus(); } catch { /* ignore */ } }
+    } else closePanel();
     cfg().panel.open = open;
     save();
 }
@@ -339,7 +382,7 @@ function registerCommands() {
             case 'wait': actions.onWait(Math.max(10, Number(arg) || 60)); return '';
             case 'sleep': actions.onSleep(); return '';
             case 'eat': actions.onEat(); return '';
-            case 'health': case 'hp': case 'stamina': case 'nerve': case 'food': case 'warmth': case 'money': case 'item': case 'cond': case 'xp': case 'npc': case 'time': case 'place': case 'map': case 'route': case 'injury': case 'note': case 'check': {
+            case 'health': case 'hp': case 'stamina': case 'nerve': case 'food': case 'warmth': case 'money': case 'item': case 'cond': case 'xp': case 'npc': case 'time': case 'place': case 'map': case 'route': case 'injury': case 'carried': case 'note': case 'check': {
                 if (!g) return 'no sheet';
                 const tags = parseTags(`[${word.toUpperCase()} ${arg}]`);
                 if (!tags.length) return `could not read "${arg}"`;
@@ -378,6 +421,7 @@ function settingsHtml() {
       <label class="checkbox_label"><input type="checkbox" data-key="enabled"> Enabled (injects the sheet and the world into the prompt)</label>
       <label class="checkbox_label"><input type="checkbox" data-key="autoStart"> Start a sheet when a chat opens</label>
       <label class="checkbox_label"><input type="checkbox" data-key="autoOpen"> Open the sheet window when a chat with a sheet opens</label>
+      <div class="sf-row"><label>The sheet opens <select class="text_pole" data-key="windowMode">${options([['popout', 'In its own browser window (needs pop-ups allowed)'], ['float', 'As a panel over the chat']], s.windowMode)}</select></label></div>
       <label class="checkbox_label"><input type="checkbox" data-key="dice"> Give the model a d20 for each of your turns (uncertain actions use it)</label>
       <label class="checkbox_label"><input type="checkbox" data-key="lethal"> Lethal: at 0 health he can die (off: he is out cold and wakes worse off)</label>
       <label class="checkbox_label"><input type="checkbox" data-key="hideTags"> Hide the bookkeeping tags in the chat (shown as small chips instead)</label>
@@ -416,6 +460,7 @@ function bindSettings(root) {
             save();
             if (['enabled', 'dice', 'lethal', 'world', 'maxNpcs', 'injectPosition', 'injectDepth', 'injectRole'].includes(key)) updateInjection();
             if (key === 'hideTags') decorateAll();
+            if (key === 'windowMode' && panel) { closePanel(); setPanelOpen(true); }
             panel?.refresh();
         });
     }

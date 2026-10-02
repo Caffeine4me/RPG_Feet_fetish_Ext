@@ -3,14 +3,14 @@
 // This module finds them, applies them to the game and removes them from what the reader sees.
 
 import { str } from './json.js';
-import { addInjury, addXp, changeItem, changeMeter, eat, passTime, setCondition } from './sheet.js';
+import { addInjury, addXp, changeItem, changeMeter, eat, passTime, setCarried, setCondition } from './sheet.js';
 import { upsertNpc } from './npcs.js';
 import { classForHeight, FT } from './size.js';
 import { KINDS, here, upsertPlace, upsertRoute } from './nav.js';
 import { parseTime, absMin } from './clock.js';
 import { ATTRS } from './dice.js';
 
-const KEYWORDS = 'HEALTH|HP|STAMINA|STAM|NERVE|FOOD|WARMTH|EAT|MONEY|CASH|ITEM|COND|XP|NPC|CHECK|TIME|PLACE|MAP|ROUTE|INJURY|NOTE';
+const KEYWORDS = 'HEALTH|HP|STAMINA|STAM|NERVE|FOOD|WARMTH|EAT|MONEY|CASH|ITEM|COND|XP|NPC|CHECK|TIME|PLACE|MAP|ROUTE|INJURY|CARRIED|NOTE';
 const TAG = new RegExp(`\\[(${KEYWORDS})\\b\\s*([^\\]]*)\\]`, 'gi');
 export const TAG_RE = TAG;
 const METER = { HEALTH: 'health', HP: 'health', STAMINA: 'stamina', STAM: 'stamina', NERVE: 'nerve', FOOD: 'food', WARMTH: 'warmth' };
@@ -36,6 +36,7 @@ export function parseTags(text) {
         else if (key === 'MAP') out.push(parseMap(arg));
         else if (key === 'ROUTE') out.push(parseRoute(arg));
         else if (key === 'INJURY') out.push(parseInjury(arg));
+        else if (key === 'CARRIED') { const [by, ...rest] = arg.split(':'); const who = by.trim(); out.push(who === '-' || /^(no|none|down|free|off)$/i.test(who) || !who ? { type: 'carried', by: null, where: '' } : { type: 'carried', by: str(who.replace(/^\+\s*/, ''), 60), where: str(rest.join(':'), 80) }); }
         else if (key === 'NOTE') out.push({ type: 'note', text: str(arg, 200) });
     }
     return out.filter(Boolean);
@@ -153,6 +154,7 @@ export function applyTags(game, tags, { r = Math.random } = {}) {
             }
             case 'map': { if (nav) { const { place, created } = upsertPlace(nav, t); if (place) out.push({ kind: 'info', text: `${created ? 'mapped' : 'updated'}: ${place.name}` }); } break; }
             case 'route': { if (nav) { const rt = upsertRoute(nav, t); if (rt) out.push({ kind: 'info', text: `way: ${t.from} – ${t.to}` }); } break; }
+            case 'carried': setCarried(sheet, t.by, t.where); out.push({ kind: 'info', text: t.by ? `carried by ${t.by}${t.where ? ` (${t.where})` : ''}` : 'set down' }); break;
             case 'injury': { const inj = addInjury(sheet, t.name, t.attr, t.mod, t.hours); if (inj) out.push({ kind: 'bad', text: `injured: ${inj.name} (${inj.attr} ${inj.mod})` }); break; }
             case 'note': sheet.notes = [...sheet.notes.slice(-29), t.text]; out.push({ kind: 'info', text: `note: ${t.text}` }); break;
             default: break;
@@ -168,6 +170,7 @@ export const TAG_HELP = [
     '[ITEM +brass key: opens her pantry] [ITEM +coin x3] [ITEM -rope]  gained or lost',
     '[COND +soaked] [COND -hidden] [COND +carried] [COND +noticed]  a state that starts or ends',
     '[INJURY sprained ankle: agility -1, 2 days]  a lasting hurt (might, agility, wits or charm)',
+    '[CARRIED Mara: in her apron pocket] [CARRIED -]  when a giant picks him up or sets him down (hand, pocket, shoulder, cup, bag)',
     '[XP +10]  for a risk survived, a problem solved, a giant won over (5 small, 10 real, 25 big)',
     '[NPC Mara] a newly named giant; her size is rolled and given to you next turn. Add "class 3" or "32 ft" only when the story has already fixed her size; ": a note" to remember something',
     '[CHECK agility 17 vs 12: success]  when you used the dice',
@@ -188,6 +191,7 @@ export function tagLabel(t, currency = '$') {
         case 'item': return `${t.qty < 0 ? 'lost' : 'got'} ${t.name}${Math.abs(t.qty) > 1 ? ` ×${Math.abs(t.qty)}` : ''}`;
         case 'cond': return `${t.on ? '' : 'no longer '}${t.name.toLowerCase()}`;
         case 'injury': return `injured: ${t.name}`;
+        case 'carried': return t.by ? `✋ ${t.by}${t.where ? `: ${t.where}` : ''}` : 'set down';
         case 'npc': return `${t.name}${t.cls ? ` · class ${t.cls}` : ''}`;
         case 'check': return `🎲 ${t.text}`;
         case 'time': return `🕑 ${t.text}`;

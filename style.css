@@ -20,6 +20,27 @@
 .sf-status { padding: 3px 8px; font-size: 11px; opacity: .7; min-height: 14px; }
 .sf-collapsed .sf-tabs, .sf-collapsed .sf-body, .sf-collapsed .sf-status { display: none; }
 
+/* in its own browser window */
+body.sf-popout-body { margin: 0; background: #1e2130; color: #e8e6df; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.sf-panel.sf-popout { position: static; width: 100vw; height: 100vh; max-height: none; border: 0; border-radius: 0; box-shadow: none; overflow-x: hidden; }
+.sf-panel .sf-body, .sf-panel .sf-card, .sf-panel .sf-row { min-width: 0; }
+.sf-panel.sf-popout .sf-header { cursor: default; }
+
+/* cards */
+.sf-card { border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; background: rgba(255,255,255,.025); }
+.sf-card-title { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; font-weight: 600; }
+.sf-nowline { justify-content: space-between; }
+.sf-where-tag { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-carried { background: #4a3a5a; cursor: pointer; }
+.sf-pm { display: inline-flex; gap: 2px; }
+.sf-bar-actions { display: flex; gap: 4px; align-items: center; position: sticky; bottom: 0; background: var(--SmartThemeBlurTintColor, #1e2130); padding-top: 4px; }
+.sf-more { position: relative; }
+.sf-menu { display: none; position: absolute; right: 0; bottom: 100%; background: #262a3b; border: 1px solid rgba(255,255,255,.15); border-radius: 5px; min-width: 170px; z-index: 5; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+.sf-menu.sf-open { display: flex; flex-direction: column; }
+.sf-menu-item { background: none; border: 0; color: inherit; text-align: left; padding: 6px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+.sf-menu-item:hover { background: rgba(255,255,255,.08); }
+.sf-menu-item:last-child { color: #e88a7a; }
+
 .sf-btn { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: inherit; border-radius: 4px; padding: 2px 7px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1.3; }
 .sf-btn:hover { background: rgba(255,255,255,.16); }
 .sf-btn.sf-primary { background: #4b6a3d; border-color: #6b9a57; }
@@ -39,20 +60,20 @@
 .sf-bad { color: #e88a7a; }
 
 .sf-ident .sf-name { width: 120px; font-weight: 700; }
-.sf-meters { display: flex; flex-direction: column; gap: 4px; }
+.sf-meters { display: flex; flex-direction: column; gap: 3px; }
 .sf-meter, .sf-xp { display: flex; align-items: center; gap: 4px; }
-.sf-meter-name { width: 56px; text-transform: capitalize; font-size: 12px; opacity: .85; }
-.sf-bar { flex: 1; height: 14px; background: rgba(0,0,0,.35); border-radius: 3px; position: relative; overflow: hidden; }
+.sf-meter-name { width: 56px; text-transform: capitalize; font-size: 11px; opacity: .85; }
+.sf-bar { flex: 1; height: 12px; background: rgba(0,0,0,.35); border-radius: 3px; position: relative; overflow: hidden; }
 .sf-fill { height: 100%; background: #6b9a57; transition: width .25s; }
 .sf-health .sf-fill { background: #c25a4f; }
 .sf-stamina .sf-fill { background: #d9a441; }
 .sf-nerve .sf-fill { background: #5a86c2; }
 .sf-xp .sf-fill { background: #8a62b8; }
-.sf-bar-text { position: absolute; inset: 0; font-size: 10px; text-align: center; line-height: 14px; color: #fff; text-shadow: 0 1px 1px #000; }
+.sf-bar-text { position: absolute; inset: 0; font-size: 9px; text-align: center; line-height: 12px; color: #fff; text-shadow: 0 1px 1px #000; }
 .sf-max { width: 48px; }
-.sf-attrs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; }
-.sf-attr { display: flex; align-items: center; gap: 6px; }
-.sf-attr-name { width: 52px; text-transform: capitalize; opacity: .85; }
+.sf-attrs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px 6px; }
+.sf-attr { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
+.sf-attr-name { text-transform: capitalize; opacity: .75; font-size: 11px; }
 .sf-dots { font-size: 8px; letter-spacing: 1px; opacity: .6; }
 .sf-money { display: flex; align-items: center; gap: 2px; font-weight: 700; }
 .sf-money-in { width: 80px; }

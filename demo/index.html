@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Smallfolk demo</title>
 <link rel="stylesheet" href="../style.css">
-<style>body{margin:0;background:#12141c;font-family:system-ui,sans-serif;color:#e8e6df}.sf-panel{position:static;margin:16px;width:360px;max-height:none}
+<style>body{margin:0;background:#12141c;font-family:system-ui,sans-serif;color:#e8e6df}.sf-panel{position:static;margin:16px;width:360px;max-height:none}.sf-panel.sf-popout{margin:0}
 .chat{margin:16px;max-width:560px;background:#1e2130;border-radius:8px;padding:12px;font-size:14px;line-height:1.5}.chat b{color:#e2b36a}</style></head>
 <body>
 <div id="mount"></div>
@@ -19,7 +19,7 @@ sheet.meters.health.cur = 7; sheet.meters.stamina.cur = 4; sheet.attrs.agility =
 changeItem(sheet, 'brass key', 1, 'opens her pantry'); changeItem(sheet, 'coin', 3, 'each the size of a dinner plate'); changeItem(sheet, 'bent nail', 1, 'a sword, almost');
 setCondition(sheet, 'soaked'); setCondition(sheet, 'hidden');
 sheet.time = { day: 2, min: 21 * 60 + 10 }; sheet.place = 'under the table'; sheet.notes = ['Mara owes you for finding her earring.'];
-sheet.meters.food.cur = 3; sheet.meters.warmth.cur = 6; sheet.injuries = [{ name: 'sprained ankle', attr: 'agility', mod: -1, until: 99999 }];
+sheet.meters.food.cur = 3; sheet.meters.warmth.cur = 6; sheet.carried = { by: 'Mara', where: 'in her apron pocket' }; sheet.injuries = [{ name: 'sprained ankle', attr: 'agility', mod: -1, until: 99999 }];
 const nav = createNav();
 upsertPlace(nav, { name: "Mara's kitchen", kind: 'indoor', danger: 1, crowd: 1, cover: 2, note: 'warm; the cat sleeps by the stove' });
 upsertPlace(nav, { name: 'The drawer', kind: 'hideout' });
@@ -36,10 +36,11 @@ const r = rng(5);
 upsertNpc(npcs, { name: 'Mara Voss', cls: Number(q.get('cls')) || 3, card: true, turn: 0 }, r); npcs[0].relation = 'keeps you in her apron pocket';
 upsertNpc(npcs, { name: 'Tess', cls: 1, turn: 3, note: 'the baker\'s daughter' }, r);
 upsertNpc(npcs, { name: 'Ola', cls: 5, turn: 5, note: 'seen once, from a roof' }, r);
-const app = { onEat() {}, onWait() {}, onSleep() {}, onTravel() {}, onArrive() {}, onLink() {}, onPlaceAdd() {}, onPlaceEdit() {}, onPlaceRemove() {}, onHeal() {}, view: () => ({ sheet, npcs, nav, weather: q.get('weather') || 'rain', log: ['19:02 health -2 (8/10)', '19:02 got brass key', '19:05 met Tess, class 1', '19:11 check: agility 17 vs 12: success'], checks: ['agility 17 vs 12: success'], roll: 14, moneyText: `$${sheet.money}`, hint: '' }), onPrefs() {}, onClose() {}, onNew() {}, onUndo() {}, onRest() {}, onMeter() {}, onMeterMax() {}, onXp() {}, onSpend() {}, onMoney() {}, onEdit() {}, onCond() {}, onItem() {}, onItemNote() {}, onNoteRemove() {}, onNpcAdd() {}, onNpcClass() {}, onNpcReroll() {}, onNpcRemove() {}, onNpcEdit() {} };
-const panel = new Panel(app, { tab: q.get('tab') || 'sheet' });
+const app = { onPopout() {}, onCarried() {}, onEat() {}, onWait() {}, onSleep() {}, onTravel() {}, onArrive() {}, onLink() {}, onPlaceAdd() {}, onPlaceEdit() {}, onPlaceRemove() {}, onHeal() {}, view: () => ({ sheet, npcs, nav, weather: q.get('weather') || 'rain', log: ['19:02 health -2 (8/10)', '19:02 got brass key', '19:05 met Tess, class 1', '19:11 check: agility 17 vs 12: success'], checks: ['agility 17 vs 12: success'], roll: 14, moneyText: `$${sheet.money}`, hint: '' }), onPrefs() {}, onClose() {}, onNew() {}, onUndo() {}, onRest() {}, onMeter() {}, onMeterMax() {}, onXp() {}, onSpend() {}, onMoney() {}, onEdit() {}, onCond() {}, onItem() {}, onItemNote() {}, onNoteRemove() {}, onNpcAdd() {}, onNpcClass() {}, onNpcReroll() {}, onNpcRemove() {}, onNpcEdit() {} };
+const panel = new Panel(app, { tab: q.get('tab') || 'sheet' }, { popout: q.get('popout') === '1' });
 panel.mount(document.getElementById('mount'));
 if (q.get('dest')) { panel.dest = q.get('dest'); panel.refresh(); }
+if (q.get('debug')) setTimeout(() => { const out = []; for (const n of document.querySelectorAll('.sf-panel, .sf-panel *')) if (n.scrollWidth > 420 || n.getBoundingClientRect().right > 421) out.push(`${n.tagName}.${n.className} w=${n.getBoundingClientRect().width.toFixed(0)} right=${n.getBoundingClientRect().right.toFixed(0)}`); document.body.insertAdjacentHTML('beforeend', `<pre id="dbg">${out.join('\n')}</pre>`); }, 500);
 const text = `She sets the mug down beside you. It is taller than your head, and the steam off it is a warm fog you have to step out of.\n\n"Stay put," Mara says from somewhere above the table's edge, and a coin the size of a dinner plate rings down next to you. "For the trouble."\n\n[HEALTH -2]\n[MONEY +1]\n[ITEM +coin: the size of a dinner plate]\n[COND +soaked]\n[NPC Tess: the baker's daughter]\n[CHECK agility 17 vs 12: success]\n[TIME +25 min]\n[MAP Market square: square, danger 3, crowd 3, cover 0]\n[ROUTE Back step - Market square: 6 min, hazards: gutter, carts]`;
 const mes = document.getElementById('mes');
 mes.innerHTML = text.split('\n\n').map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');

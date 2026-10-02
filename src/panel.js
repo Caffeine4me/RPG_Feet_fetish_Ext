@@ -11,8 +11,11 @@ import { KINDS, findPath, here, layout, routesFrom, smallMinutes } from './nav.j
 import { riskOf } from './danger.js';
 import { drawMap, hitPlace, MAP_H, MAP_W } from './mapart.js';
 
+let doc = globalThis.document; // the document the window lives in (a popout has its own)
+export const setDocument = (d) => { doc = d; };
+
 export function el(tag, attrs = {}, ...kids) {
-    const n = document.createElement(tag);
+    const n = doc.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
         if (v === null || v === undefined || v === false) continue;
         if (k === 'class') n.className = v;
@@ -21,27 +24,36 @@ export function el(tag, attrs = {}, ...kids) {
         else if (k === 'dataset') Object.assign(n.dataset, v);
         else n.setAttribute(k, v === true ? '' : v);
     }
-    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid.nodeType ? kid : doc.createTextNode(String(kid)));
     return n;
 }
 const btn = (text, title, onclick, cls = '') => el('button', { type: 'button', class: `sf-btn ${cls}`, title, onclick }, text);
 
 export class Panel {
-    constructor(app, prefs = {}) {
+    /**
+     * @param app the callbacks and view()
+     * @param prefs stored position and tab
+     * @param o.popout true when the panel fills its own browser window (no drag, no collapse)
+     */
+    constructor(app, prefs = {}, { popout = false, document: d = globalThis.document } = {}) {
         this.app = app;
         this.prefs = prefs;
+        this.popout = popout;
+        setDocument(d);
         this.selected = null; // npc id for the scale drawing
         this.tab = prefs.tab || 'sheet';
-        this.root = el('div', { class: 'sf-panel', id: 'sf_panel' });
+        this.root = el('div', { class: `sf-panel${popout ? ' sf-popout' : ''}`, id: 'sf_panel' });
         this.tick = 0;
     }
 
     mount(parent) {
+        setDocument(parent.ownerDocument);
         const header = el('div', { class: 'sf-header' },
             el('span', { class: 'sf-title' }, '🧍 Smallfolk'),
             this.sub = el('span', { class: 'sf-sub' }),
             el('span', { class: 'sf-spacer' }),
-            btn('–', 'Collapse', () => this.toggleCollapse()),
+            btn(this.popout ? '⇲' : '⧉', this.popout ? 'Dock back into SillyTavern' : 'Open in its own window', () => this.app.onPopout(!this.popout)),
+            this.popout ? null : btn('–', 'Collapse', () => this.toggleCollapse()),
             btn('×', 'Close', () => this.app.onClose()));
         this.dest = null; // chosen place on the map
         this.tabs = el('div', { class: 'sf-tabs' }, ...['sheet', 'map', 'bag', 'giants', 'log'].map((t) => el('button', { type: 'button', class: 'sf-tab', dataset: { tab: t }, onclick: () => { this.tab = t; this.prefs.tab = t; this.app.onPrefs(this.prefs); this.refresh(); } }, t)));
@@ -49,12 +61,14 @@ export class Panel {
         this.status = el('div', { class: 'sf-status' });
         this.root.append(header, this.tabs, this.body, this.status);
         const p = this.prefs;
-        if (p.left !== undefined) Object.assign(this.root.style, { left: `${p.left}px`, top: `${p.top}px`, right: 'auto' });
-        if (p.width) this.root.style.width = `${p.width}px`;
-        if (p.collapsed) this.root.classList.add('sf-collapsed');
+        if (!this.popout) {
+            if (p.left !== undefined) Object.assign(this.root.style, { left: `${p.left}px`, top: `${p.top}px`, right: 'auto' });
+            if (p.width) this.root.style.width = `${p.width}px`;
+            if (p.collapsed) this.root.classList.add('sf-collapsed');
+            this._drag(header);
+            this.root.addEventListener('pointerup', () => this._savePos());
+        }
         parent.append(this.root);
-        this._drag(header);
-        this.root.addEventListener('pointerup', () => this._savePos());
         this.refresh();
     }
 
@@ -73,6 +87,7 @@ export class Panel {
         handle.addEventListener('pointerup', () => { start = null; this._savePos(); });
     }
     _savePos() {
+        if (this.popout) return;
         const r = this.root.getBoundingClientRect();
         Object.assign(this.prefs, { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width) });
         this.app.onPrefs(this.prefs);
@@ -101,51 +116,62 @@ export class Panel {
     }
 
     // -------------------------------------------------------------- sheet
+    card(title, ...kids) { return el('section', { class: 'sf-card' }, title ? el('h4', { class: 'sf-card-title' }, title) : null, ...kids); }
+
     sheetTab(v) {
         const s = v.sheet;
-        const name = el('input', { class: 'sf-input sf-name', value: s.name, title: 'Your name on the sheet', onchange: (e) => this.app.onEdit('name', e.target.value) });
-        const height = el('input', { class: 'sf-input sf-num', type: 'number', min: 30, max: 300, value: s.height_cm, title: 'Your height in cm (91 cm is 3 ft)', onchange: (e) => this.app.onEdit('height_cm', Number(e.target.value)) });
-        this.body.append(el('div', { class: 'sf-row sf-ident' }, name, el('label', {}, 'cm ', height), el('span', { class: 'sf-tag' }, `level ${levelFor(s.xp)}`)));
+        const at = v.nav ? here(v.nav) : null;
+        const risk = riskOf(at, { sheet: s, time: s.time, weather: v.weather });
+        // now
+        this.body.append(this.card(null,
+            el('div', { class: 'sf-row sf-nowline' }, el('span', { class: 'sf-clock' }, clockText(s.time)), el('span', { class: 'sf-dim' }, weatherLine(v.weather).split(':')[0])),
+            el('div', { class: 'sf-row' }, el('span', { class: 'sf-tag sf-where-tag', title: 'Where you are (set on the map tab)' }, `📍 ${at ? at.name : 'nowhere named'}`), el('input', { class: 'sf-input sf-grow', value: s.place, placeholder: 'the spot: under the table', onchange: (e) => this.app.onEdit('place', e.target.value) })),
+            el('div', { class: 'sf-row' },
+                el('span', { class: `sf-risk sf-risk-${risk.level.replace(/\s+/g, '-')}`, title: risk.factors.map(([t, n]) => `${t} ${n >= 0 ? '+' : ''}${n}`).join(', ') }, `${risk.level} · difficulty ${risk.dc}`),
+                s.carried ? el('span', { class: 'sf-tag sf-carried', title: 'Click when she sets you down', onclick: () => this.app.onCarried(null) }, `✋ ${s.carried.by}${s.carried.where ? `: ${s.carried.where}` : ''} ×`) : null,
+                v.roll ? el('span', { class: 'sf-tag sf-dice', title: 'The d20 the model gets for your next action' }, `🎲 ${v.roll}`) : null)));
+        // vitals
         const meters = el('div', { class: 'sf-meters' });
         for (const m of METERS) {
             const { cur, max } = s.meters[m];
-            const pct = Math.round((cur / max) * 100);
-            meters.append(el('div', { class: `sf-meter sf-${m}`, title: METER_HELP[m] },
+            meters.append(el('div', { class: `sf-meter sf-${m}`, title: `${m}: ${METER_HELP[m]}` },
                 el('span', { class: 'sf-meter-name' }, m),
-                el('div', { class: 'sf-bar' }, el('div', { class: 'sf-fill', style: { width: `${pct}%` } }), el('span', { class: 'sf-bar-text' }, `${cur}/${max}`)),
-                btn('−', `${m} −1`, () => this.app.onMeter(m, -1)), btn('+', `${m} +1`, () => this.app.onMeter(m, +1)),
-                el('input', { class: 'sf-input sf-num sf-max', type: 'number', min: 1, max: 999, value: max, title: `${m} maximum`, onchange: (e) => this.app.onMeterMax(m, Number(e.target.value)) })));
+                el('div', { class: 'sf-bar' }, el('div', { class: 'sf-fill', style: { width: `${Math.round((cur / max) * 100)}%` } }), el('span', { class: 'sf-bar-text' }, `${cur}/${max}`)),
+                el('span', { class: 'sf-pm' }, btn('−', `${m} −1`, () => this.app.onMeter(m, -1), 'sf-mini'), btn('+', `${m} +1`, () => this.app.onMeter(m, +1), 'sf-mini'))));
         }
-        this.body.append(meters);
-        const xpPct = Math.round(((s.xp % XP_PER_LEVEL) / XP_PER_LEVEL) * 100);
-        this.body.append(el('div', { class: 'sf-xp', title: `${s.xp} xp; ${XP_PER_LEVEL} per level` }, el('span', { class: 'sf-meter-name' }, 'xp'), el('div', { class: 'sf-bar' }, el('div', { class: 'sf-fill', style: { width: `${xpPct}%` } }), el('span', { class: 'sf-bar-text' }, `${s.xp % XP_PER_LEVEL}/${XP_PER_LEVEL}`)), btn('+5', 'xp +5', () => this.app.onXp(5))));
-        const attrs = el('div', { class: 'sf-attrs' });
-        for (const a of ATTRS) {
-            attrs.append(el('div', { class: 'sf-attr', title: ATTR_HELP[a] }, el('span', { class: 'sf-attr-name' }, a), el('b', {}, `+${s.attrs[a]}`),
-                s.points > 0 ? btn('▲', `Spend a point on ${a}`, () => this.app.onSpend(a), 'sf-mini') : el('span', { class: 'sf-dots' }, '●'.repeat(Math.min(9, s.attrs[a])))));
-        }
-        this.body.append(attrs);
-        if (s.points > 0) this.body.append(el('div', { class: 'sf-note sf-good' }, `${s.points} attribute point${s.points > 1 ? 's' : ''} to spend.`));
-        this.body.append(el('div', { class: 'sf-row' },
-            el('label', { class: 'sf-money' }, s.currency, el('input', { class: 'sf-input sf-num sf-money-in', type: 'number', min: 0, step: '0.5', value: s.money, onchange: (e) => this.app.onEdit('money', Number(e.target.value)) })),
-            btn('−5', '', () => this.app.onMoney(-5)), btn('+5', '', () => this.app.onMoney(5)), btn('+20', '', () => this.app.onMoney(20)),
-            v.roll ? el('span', { class: 'sf-tag sf-dice', title: 'The d20 the model gets for your next action' }, `🎲 ${v.roll}`) : null));
-        const conds = el('div', { class: 'sf-conds' }, ...s.conditions.map((c) => el('span', { class: 'sf-cond', title: 'Click to clear', onclick: () => this.app.onCond(c, false) }, c, ' ×')),
+        const conds = el('div', { class: 'sf-conds' },
+            ...s.conditions.filter((c) => c !== 'carried').map((c) => el('span', { class: 'sf-cond', title: 'Click to clear', onclick: () => this.app.onCond(c, false) }, c, ' ×')),
+            ...s.injuries.map((i) => el('span', { class: 'sf-cond sf-injury', title: `${i.attr} ${i.mod} until it heals; click to heal`, onclick: () => this.app.onHeal(i.name) }, `${i.name} ×`)),
             el('input', { class: 'sf-input sf-cond-in', placeholder: '+ condition', onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim()) { this.app.onCond(e.target.value.trim(), true); e.target.value = ''; } } }));
-        this.body.append(conds);
-        const at = v.nav ? here(v.nav) : null;
-        const risk = riskOf(at, { sheet: s, time: s.time, weather: v.weather });
-        this.body.append(el('div', { class: 'sf-now' },
-            el('div', { class: 'sf-row' }, el('span', { class: 'sf-clock' }, `🕑 ${clockText(s.time)}`), el('span', { class: 'sf-dim' }, ` · ${weatherLine(v.weather).split(':')[0]}`)),
-            el('div', { class: 'sf-row' }, el('span', { class: 'sf-tag' }, `📍 ${at ? at.name : 'nowhere named'}`), el('input', { class: 'sf-input sf-grow', value: s.place, placeholder: 'the spot (under the table)', onchange: (e) => this.app.onEdit('place', e.target.value) })),
-            el('div', { class: `sf-risk sf-risk-${risk.level.replace(/\s+/g, '-')}`, title: risk.factors.map(([t, n]) => `${t} ${n >= 0 ? '+' : ''}${n}`).join(', ') }, `${risk.level} here (difficulty ${risk.dc})`)));
-        if (s.injuries.length) this.body.append(el('div', { class: 'sf-conds' }, ...s.injuries.map((i) => el('span', { class: 'sf-cond sf-injury', title: 'Click to heal' , onclick: () => this.app.onHeal(i.name) }, `${i.name} (${i.attr} ${i.mod}) ×`))));
-        this.body.append(el('div', { class: 'sf-row sf-actions sf-time' },
-            btn('Eat', 'Eat a meal from your bag (food +4)', () => this.app.onEat()),
-            btn('Wait 1 h', 'Let an hour pass here', () => this.app.onWait(60)),
-            btn('Sleep', 'Sleep here until morning', () => this.app.onSleep())));
-        if (s.notes.length) this.body.append(el('div', { class: 'sf-notes' }, ...s.notes.map((n, i) => el('div', { class: 'sf-note-line' }, n, btn('×', 'Forget', () => this.app.onNoteRemove(i), 'sf-mini')))));
-        this.body.append(el('div', { class: 'sf-row sf-actions' }, btn('↶ Undo', 'Undo the last change', () => this.app.onUndo()), btn('Heal all', 'Restore every meter (a GM fiat)', () => this.app.onRest()), btn('New sheet', 'Start this chat over', () => this.app.onNew(), 'sf-danger')));
+        this.body.append(this.card('Vitals', meters, conds));
+        // self
+        const attrs = el('div', { class: 'sf-attrs' });
+        for (const a of ATTRS) attrs.append(el('div', { class: 'sf-attr', title: ATTR_HELP[a] }, el('span', { class: 'sf-attr-name' }, a), el('b', {}, `+${s.attrs[a]}`), s.points > 0 ? btn('▲', `Spend a point on ${a}`, () => this.app.onSpend(a), 'sf-mini sf-primary') : null));
+        const xpPct = Math.round(((s.xp % XP_PER_LEVEL) / XP_PER_LEVEL) * 100);
+        this.body.append(this.card('You',
+            el('div', { class: 'sf-row sf-ident' },
+                el('input', { class: 'sf-input sf-name', value: s.name, title: 'Your name on the sheet', onchange: (e) => this.app.onEdit('name', e.target.value) }),
+                el('label', { class: 'sf-dim', title: 'Your height in cm (91 cm is 3 ft)' }, el('input', { class: 'sf-input sf-num', type: 'number', min: 30, max: 300, value: s.height_cm, onchange: (e) => this.app.onEdit('height_cm', Number(e.target.value)) }), ' cm'),
+                el('span', { class: 'sf-spacer' }),
+                el('label', { class: 'sf-money' }, s.currency, el('input', { class: 'sf-input sf-num sf-money-in', type: 'number', min: 0, step: '0.5', value: s.money, onchange: (e) => this.app.onEdit('money', Number(e.target.value)) }))),
+            el('div', { class: 'sf-row sf-xp', title: `${s.xp} xp; ${XP_PER_LEVEL} per level` }, el('span', { class: 'sf-meter-name' }, `level ${levelFor(s.xp)}`), el('div', { class: 'sf-bar' }, el('div', { class: 'sf-fill', style: { width: `${xpPct}%` } }), el('span', { class: 'sf-bar-text' }, `${s.xp % XP_PER_LEVEL}/${XP_PER_LEVEL} xp`)), s.points > 0 ? el('span', { class: 'sf-tag sf-good' }, `${s.points} point${s.points > 1 ? 's' : ''} to spend`) : null),
+            attrs));
+        if (s.notes.length) this.body.append(this.card('Remembered', el('div', { class: 'sf-notes' }, ...s.notes.map((n, i) => el('div', { class: 'sf-note-line' }, n, btn('×', 'Forget', () => this.app.onNoteRemove(i), 'sf-mini'))))));
+        // actions
+        this.body.append(el('div', { class: 'sf-bar-actions' },
+            btn('🍞 Eat', 'Eat from your bag (food +4)', () => this.app.onEat()),
+            btn('⏳ Wait 1 h', 'Let an hour pass here', () => this.app.onWait(60)),
+            btn('🌙 Sleep', 'Sleep here until morning', () => this.app.onSleep()),
+            el('span', { class: 'sf-spacer' }),
+            btn('↶', 'Undo the last change', () => this.app.onUndo()),
+            this.more([['Heal everything', () => this.app.onRest()], ['Add 5 xp', () => this.app.onXp(5)], ['New sheet (start over)', () => this.app.onNew()]])));
+    }
+
+    /** A small menu button with a list of actions. */
+    more(items) {
+        const menu = el('div', { class: 'sf-menu' }, ...items.map(([label, fn]) => el('button', { type: 'button', class: 'sf-menu-item', onclick: () => { menu.classList.remove('sf-open'); fn(); } }, label)));
+        const wrap = el('span', { class: 'sf-more' }, btn('⋯', 'More', () => menu.classList.toggle('sf-open')), menu);
+        return wrap;
     }
 
     // -------------------------------------------------------------- map

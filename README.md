@@ -6,7 +6,8 @@ A SillyTavern extension for playing a three-foot-tall man in a world of giants. 
 - **A clock and weather.** Every reply moves the clock (the model says how long, or a default passes). Hunger comes on every three hours, cold when you are wet or out at night, tiredness after sixteen hours awake. Each day rolls its weather, and rain or wind change what the streets are.
 - **Danger that is computed, not just described.** Every place has a danger, a crowd and a cover rating. With the hour, the weather, the dark and your own state (soaked, exhausted, hidden, shaking) that becomes one difficulty number the model is told to use, and that the extension itself rolls against when you travel, wait in the open or sleep rough.
 - **A map.** The story names places and ways (MAP and ROUTE tags), the extension keeps them as a graph, draws it, finds the quickest path, and converts a giant's walking time into yours. Press Go and each leg is rolled against its hazards (a boot, a cart wheel, a cat, a gutter in flood), time passes, the cost lands on your sheet, and the outcome is handed to the model as something that already happened.
-- **The giants you know.** Every giant the story names gets a size class the moment she appears, rolled by the extension so the tall ones stay rare, and her numbers (height, sole, hand, stride, her stairs, her mug, her coin) go into the prompt next to you for comparison. A to-scale pixel drawing shows you beside whoever you pick.
+- **The giants you know.** Every giant the story names gets a size class the moment she appears, rolled by the extension so the tall ones stay rare, and her numbers go into the prompt next to you for comparison: height, weight, sole, hand, stride, her stairs, her mug, her coin; what you are to her eye (a cat, a mouse, a beetle); whether she can hear you from the floor; how her steps and her voice reach you; what is at your eye level. A to-scale pixel drawing shows you beside whoever you pick.
+- **The physics of being small.** Fall heights that bruise, break and kill at your size, what you can carry, what a giant's step, breath and closing hand mean, how deep water is swimming, and how fast cold reaches a small body. Being carried is a tracked state (`[CARRIED Mara: in her apron pocket]`), with who has you and where.
 - **Dice.** Each of your turns the model gets a d20 and your totals; it uses them only when what you try could fail, then reports the check.
 - **Bookkeeping.** The model ends its reply with short tags when something on the sheet changes (`[HEALTH -2]`, `[MONEY +5]`, `[ITEM +brass key]`, `[NPC Mara class 3]` …). The extension applies them, hides them in the chat behind small chips, and rolls them back on a swipe or an edit.
 
@@ -46,7 +47,7 @@ Extensions → Install extension → paste `https://github.com/caffeine4me/RPG_F
 ## Use
 
 1. Open a chat. A sheet starts by itself (switch that off in the settings) and the character card gets her class, rolled or pinned.
-2. Open the sheet from the wand menu or with `/sf`. Drag it anywhere; the `–` button collapses it to its header.
+2. Open the sheet from the wand menu or with `/sf`. By default it opens in its own browser window, so it can sit beside the chat or on another screen; allow pop-ups for your SillyTavern address if the browser blocks it. The ⇲ button docks it back as a panel over the chat (draggable; `–` collapses it), and ⧉ pops it out again.
 3. Play. Edit anything on the sheet by hand at any time; the model only sees the sheet through the prompt, so what you set is what it plays by.
 4. Move on the map tab. Click a place (or one of the ways listed from where you are), read the plan, press Go. The extension rolls the journey, posts a short line to the chat as you ("*Tom sets out for the market…*"), and the model's next reply tells what happened on the way. Wait 1 h and Sleep on the sheet tab work the same way. Set as here tells the sheet you are already somewhere without a roll.
 
@@ -71,6 +72,7 @@ Extensions → Install extension → paste `https://github.com/caffeine4me/RPG_F
 /sf map Market square: square, danger 3, crowd 3, cover 0: stalls and a drain
 /sf route Back step - Market square: 6 min, hazards: gutter, cats
 /sf injury sprained ankle: agility -1, 2 days
+/sf carried Mara: in her hand     /sf carried -
 /sf note she owes you
 /sf rest                     meters back to full
 /sf undo                     undo the last change
@@ -83,6 +85,7 @@ Extensions → Install extension → paste `https://github.com/caffeine4me/RPG_F
 | --- | --- |
 | Enabled | Injects the world, your sheet, the giants and the dice into every prompt. |
 | Start a sheet when a chat opens | Otherwise press New sheet in the window. |
+| The sheet opens | In its own browser window, or as a panel over the chat. |
 | Dice | Give the model a d20 for each of your turns. |
 | Lethal | At 0 health he can die. Off: out cold, wakes worse off. |
 | Minutes a reply covers | When the model gives no TIME tag, this much time passes anyway. |
