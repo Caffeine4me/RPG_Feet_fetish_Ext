@@ -12,6 +12,7 @@ import { DEFAULT_MODELS, PICTURE_SOURCES, failureText, modelsRequest, pictureReq
 import { FEET_KINDS, SHEET_COLS, SHEET_ROWS, backgroundPrompt, badEndPrompt, cellRects, eventPrompt, feetCardPrompt, keyOut, opaqueBounds, spriteSheetPrompt } from './src/sprites.js';
 import { Panel } from './src/panel.js';
 import { ST_CHECKS, decorateMessage, runChecks } from './src/chatview.js';
+import { spriteDataUrl } from './src/pixelsprite.js';
 
 const NAME = 'soleSurvivor';
 const META_KEY = 'sole_survivor';
@@ -218,6 +219,14 @@ function expressionOf(sheet) {
     return 'neutral';
 }
 
+/** A code-drawn pixel figure until the image model's sheet exists (cached per look). */
+const placeholders = new Map();
+function placeholderSprite(sheet, expr) {
+    const key = `${sheet.id}|${expr}|${sheet.look}|${sheet.shoes}|${sheet.socks}`;
+    if (!placeholders.has(key)) { try { placeholders.set(key, spriteDataUrl(sheet, expr, 4)); } catch { placeholders.set(key, ''); } }
+    return placeholders.get(key);
+}
+
 const view = () => {
     const g = game();
     const c = ctx();
@@ -230,7 +239,7 @@ const view = () => {
         hint: (loc) => (g ? closedHint(g.world, g.state, loc) : ''),
         odds: (sheet, kind) => (g ? odds(g.state, sheet, kind) ?? 0.5 : 0.5),
         expressionOf,
-        spriteUrl: (sheet, expr) => sheet.sprites?.[expr] || sheet.sprites?.neutral || '',
+        spriteUrl: (sheet, expr) => sheet.sprites?.[expr] || sheet.sprites?.neutral || placeholderSprite(sheet, expr),
         feetUrl: (sheet) => sheet.feet?.socks || sheet.feet?.bare || sheet.feet?.shoes || '',
         feetState: (id) => g?.state.feet?.[id] ?? '',
         backgroundUrl: (loc) => loc.background?.[g?.state.slot === 'night' ? 'night' : 'day'] || loc.background?.day || loc.background?.night || '',

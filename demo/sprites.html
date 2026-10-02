@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sprite sheets</title>
+<style>body{margin:0;background:#1a1216;color:#f3e2c8;font-family:monospace;padding:16px} h2{margin:0 0 4px;font-size:15px;color:#ffb347} .sheet{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;background:#2a1d22;padding:8px;border:3px solid #5a2410;border-radius:10px;margin-bottom:14px;width:max-content} .cell{background:#3a2a33;border:2px solid #1c1418;display:flex;flex-direction:column;align-items:center;padding:4px 6px} .cell span{font-size:11px;color:#ffd23f;margin-top:2px;letter-spacing:1px} canvas{image-rendering:pixelated} small{display:block;color:#b89a7a;margin-bottom:8px;font-size:11px}</style></head>
+<body>
+<script type="module">
+import { colorsFromSheet, drawFigure, FIG_W, FIG_H } from '../src/pixelsprite.js';
+import { EXPRESSIONS, normalizeSheet } from '../src/sheet.js';
+const cast = [
+  normalizeSheet({ name: 'Marisol Reyes', archetype: 'Princess', look: 'tall, tanned skin, long blonde hair in a ponytail, white tennis dress', shoes: 'white platform sneakers', socks: 'pink ankle socks with a crown logo' }),
+  normalizeSheet({ name: 'Bea Kowalski', archetype: 'Drill', look: 'stocky, short brown hair, navy hoodie and grey sweatpants', shoes: 'sweaty black trainers', socks: 'grey sport socks' }),
+  normalizeSheet({ name: 'Noor Haddad', archetype: 'Viper', look: 'olive skin, long black hair, red crop top and black jeans', shoes: 'red cowgirl boots', socks: 'black socks with holes' }),
+];
+const SCALE = 4;
+for (const s of cast) {
+  const h2 = document.createElement('h2'); h2.textContent = `${s.name} · ${s.archetype}`; document.body.append(h2);
+  const small = document.createElement('small'); small.textContent = `${s.look} · ${s.shoes} · ${s.socks}`; document.body.append(small);
+  const sheet = document.createElement('div'); sheet.className = 'sheet';
+  const c = colorsFromSheet(s);
+  for (const expr of EXPRESSIONS) {
+    const cell = document.createElement('div'); cell.className = 'cell';
+    const tiny = document.createElement('canvas'); tiny.width = FIG_W + 4; tiny.height = FIG_H + 4;
+    drawFigure(tiny.getContext('2d'), 2, 2, c, expr);
+    const big = document.createElement('canvas'); big.width = tiny.width * SCALE; big.height = tiny.height * SCALE;
+    const g = big.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(tiny, 0, 0, big.width, big.height);
+    const label = document.createElement('span'); label.textContent = expr.toUpperCase();
+    cell.append(big, label); sheet.append(cell);
+  }
+  document.body.append(sheet);
+}
+</script></body></html>

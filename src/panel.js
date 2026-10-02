@@ -246,8 +246,10 @@ export class Panel {
         const url = v.spriteUrl(s, expr);
         const feet = v.feetState(s.id);
         const wrap = el('div', { class: `ss-sprite ss-expr-${expr}`, title: `${s.name} (${expr}${feet ? `, ${feet}` : ''})` });
+        const generated = Boolean(s.sprites?.[expr] || s.sprites?.neutral);
         if (url) wrap.append(el('img', { src: url, alt: s.name, draggable: false }));
-        else wrap.append(el('div', { class: 'ss-silhouette' }, el('span', { text: first(s.name) })), v.spritesBusy(s.id) ? el('div', { class: 'ss-hint', text: 'drawing…' }) : btn('Make sprites', `Generate ${first(s.name)}'s expression sheet`, () => this.app.onMakeSprites(s.id), 'ss-small'));
+        else wrap.append(el('div', { class: 'ss-silhouette' }, el('span', { text: first(s.name) })));
+        if (!generated) wrap.append(v.spritesBusy(s.id) ? el('div', { class: 'ss-hint', text: 'drawing…' }) : btn('Make sprites', `Generate ${first(s.name)}'s expression sheet with the image model`, () => this.app.onMakeSprites(s.id), 'ss-small'));
         wrap.append(el('div', { class: 'ss-sprite-name', text: `${first(s.name)} · ${expr}` }));
         return wrap;
     }
