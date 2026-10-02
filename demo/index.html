@@ -50,6 +50,7 @@ Marisol [annoyed]: "Don't just stand there breathing on me."
 3. (Talk check) I ask about the laundromat.
 4. I leave.`;
 const p = parseReply(reply);
+if (new URLSearchParams(location.search).get('event')) state.event = { type: new URLSearchParams(location.search).get('event') };
 if (state.at !== 'home') state.scene = { lines: p.lines, narration: p.narration, choices: p.choices, expressions: p.expressions };
 const view = () => ({ chatOpen: true, cast: ['Marisol Reyes'], world, state, layoutSeed: 7, gallery: [], log: ['started'], user: 'Tom',
   present: (() => { const h = findLocation(world, state.at); return h && (isOpenNow(world, state, h) || h.type === 'home') ? whoIsAt(world, h.id, state.slot) : []; })(),

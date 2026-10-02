@@ -13,6 +13,7 @@ import { FEET_KINDS, SHEET_COLS, SHEET_ROWS, backgroundPrompt, badEndPrompt, cel
 import { Panel } from './src/panel.js';
 import { ST_CHECKS, decorateMessage, runChecks } from './src/chatview.js';
 import { spriteDataUrl } from './src/pixelsprite.js';
+import { feetPovPrompt } from './src/feetpov.js';
 
 const NAME = 'soleSurvivor';
 const META_KEY = 'sole_survivor';
@@ -640,7 +641,11 @@ async function makeScenePicture() {
     const ref = (await referenceFor(who)) || null;
     const feet = g.state.feet?.[who.id] || 'socks';
     const ending = triggers(g.state, [who]).some((t) => t.severity === 'end');
-    const prompt = ending ? badEndPrompt({ sheet: who }) : eventPrompt({ sheet: who, feet, tinyNow: tiny(g.state), note: g.state.scene?.narration?.[0] ?? '' });
+    const table = panel?.feetView ?? ['service_row', 'punishment'].includes(g.state.event?.type);
+    const here = findLocation(g.world, g.state.at);
+    const prompt = ending ? badEndPrompt({ sheet: who })
+        : table ? feetPovPrompt(who, { feet, tiny: tiny(g.state), place: here?.interior ?? '' })
+            : eventPrompt({ sheet: who, feet, tinyNow: tiny(g.state), note: g.state.scene?.narration?.[0] ?? '' });
     const pic = await makePicture(prompt, { aspect: '16:10', images: ref ? [ref] : [] });
     const path = await upload(pic.data, pic.format, `scene_${Date.now()}`);
     g.gallery.push({ url: path, title: prompt });

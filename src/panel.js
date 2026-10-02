@@ -2,6 +2,7 @@
 // and the gallery. It reads everything through `app.view()` and sends every action back through `app`.
 
 import { BASE_H, BASE_W, drawTown, hitTest, layoutTown } from './map.js';
+import { POV_H, POV_W, drawFeetPov } from './feetpov.js';
 import { ARCHETYPES, DIALS, EXPRESSIONS, VERBS } from './sheet.js';
 import { CHECKS } from './rules.js';
 import { SLOTS, findLocation, typeOf, whoIsAt } from './world.js';
@@ -43,6 +44,7 @@ export class Panel {
         this.showAll = false;
         this.everyone = false;
         this.verbTarget = '';
+        this.feetView = null; // null = automatic (on during foot service), true/false = forced
         this.maximized = false;
         this._build();
     }
@@ -175,7 +177,11 @@ export class Panel {
         const step = (t) => {
             this._raf = null;
             if (!this.isOpen) return;
-            if (t - last > 90) { last = t; this.tick++; if (this.tab === 'map' && this.canvas && this.layoutCache) this._drawMap(this.app.view(), this.layoutCache.layout); }
+            if (t - last > 90) {
+                last = t; this.tick++;
+                if (this.tab === 'map' && this.canvas && this.layoutCache) this._drawMap(this.app.view(), this.layoutCache.layout);
+                if (this.tab === 'scene' && this.povCanvas?.isConnected) drawFeetPov(this.povCanvas.getContext('2d'), { ...this.povArgs, tick: this.tick });
+            }
             this._raf = requestAnimationFrame(step);
         };
         this._raf = requestAnimationFrame(step);
@@ -189,11 +195,23 @@ export class Panel {
         const present = v.present;
         const scene = state.scene;
         const bg = here ? v.backgroundUrl(here) : '';
-        const stage = el('div', { class: 'ss-stage', style: bg ? { backgroundImage: `url("${encodeURI(bg)}")` } : {} },
-            !bg ? el('div', { class: 'ss-stage-text', text: here ? `${here.name}: ${here.interior}` : '' }) : null,
-            el('div', { class: 'ss-sprites' }, ...present.map((s) => this._sprite(v, s))),
+        const target = present.find((s) => s.id === this.verbTarget) ?? present[0] ?? null;
+        const feetOn = Boolean(target) && (this.feetView ?? ['service_row', 'punishment'].includes(state.event?.type));
+        let stageInner;
+        if (feetOn) {
+            this.povCanvas = el('canvas', { class: 'ss-pov', width: POV_W, height: POV_H });
+            this.povArgs = { sheet: target, feet: v.feetState(target.id) || 'socks', tiny: state.player.size_cm < 100 };
+            drawFeetPov(this.povCanvas.getContext('2d'), { ...this.povArgs, tick: this.tick });
+            stageInner = [this.povCanvas, el('div', { class: 'ss-pov-name', text: `${first(target.name)} · ${this.povArgs.feet}` })];
+        } else {
+            this.povCanvas = null;
+            stageInner = [!bg ? el('div', { class: 'ss-stage-text', text: here ? `${here.name}: ${here.interior}` : '' }) : null, el('div', { class: 'ss-sprites' }, ...present.map((s) => this._sprite(v, s)))];
+        }
+        const stage = el('div', { class: `ss-stage${feetOn ? ' ss-stage-pov' : ''}`, style: bg && !feetOn ? { backgroundImage: `url("${encodeURI(bg)}")` } : {} },
+            ...stageInner,
             el('div', { class: 'ss-stage-tools' },
-                here && !bg ? iconBtn('fa-image', 'Make a background picture for this place', () => this.app.onMakeBackground(here.id)) : null,
+                target ? iconBtn('fa-socks', feetOn ? 'Back to the room view' : `Feet view: ${first(target.name)}'s feet up on the table`, () => { this.feetView = !feetOn; this.refresh(); }, feetOn ? 'ss-active' : '') : null,
+                here && !bg && !feetOn ? iconBtn('fa-image', 'Make a background picture for this place', () => this.app.onMakeBackground(here.id)) : null,
                 here ? iconBtn('fa-location-dot', here.name, () => this.setTab('map')) : null,
             ),
         );
