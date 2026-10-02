@@ -1,214 +1,247 @@
-# Sole Survivor — a foot-fetish RPG extension for SillyTavern
+# Sole Survivor — a living-world foot-fetish RPG for SillyTavern
 
-Working title. Inspired by the games of tastysox (itch.io): tiny protagonists, bossy girls with
-smelly socked feet, short comedic scenes, many endings. Original characters only: the extension
-ships a *character template* and *scenario rules*, and generates a new cast for every game.
+Working title. Inspired by the games of tastysox (itch.io), especially the overworld of *The
+Yellow Socks* and *Smelly Adventure*: a pixel-art town you travel around, buildings that start
+CLOSED and open as the story moves, and visual-novel scenes inside each one. Original characters
+only. The extension ships a world framework and a character template; every game generates its own
+town and cast.
 
-## 1. What the review found
+## 1. The shape of the game
 
-Ten games, one universe, four recurring loops:
+Three layers, outermost first:
 
-| Loop | Source games | What it is |
+1. **World (overworld map).** A pixel-art town drawn by the extension: an island of grass and
+   paths, 10–16 buildings, a park, a lighthouse or landmark, a farm plot. You click a building to
+   travel there. Buildings show their name or CLOSED. A day/time clock runs; travel costs time.
+2. **Scene (visual novel).** Entering an open building where someone is drops you into a VN
+   screen: a pixel-art interior background, the character's sprite with an expression, a
+   nameplate, the dialogue box, and 3–4 choice buttons plus a free-text line. The chat model
+   writes the dialogue; the extension turns its choice block into buttons.
+3. **Event (the foot stuff).** Inside a scene, the rules engine can open an event: a service row
+   at the cinema, a sock-sorting chore at the laundromat, a shoe-cleaning job at the sports hall,
+   a punishment, a shrink sequence that turns one building's interior into a tiny expedition. Events
+   have verbs, meters, and rolls. They are the tastysox games, each one a module.
+
+The RPG state (relationships, money, size, inventory, quests, flags, unlocked endings) persists
+across all three and lives in the chat's metadata, so it saves with the chat.
+
+## 2. What the review found (kept short)
+
+- **Recurring loops**: service row (verbs Kiss/Sniff/Lick/Rub/Talk along a row of feet), tiny
+  expedition (shrunk, inventory puzzles, crush risk, a "pass" per girl unlocks the next), seduction
+  clock (affection vs shrink timer, chores pay affection), validation (one humiliating task per
+  girl), management (keep giantesses happy by the day). These become **event types**.
+- **The cast sheet** every girl has on the creator's site: an attitude archetype (four), six dials
+  0–11 (Bossy, Bratty, Friendly, Smelly, Sweaty, Dirty), a foot-odor profile as percentages of
+  cheesy/lemony/fishy/meaty, signature shoes and socks, a job, a hobby, a kink, a one-line hook,
+  a silly superpower. We copy the shape of the sheet, not the girls.
+- **Visual language**: 2000s flash-game pixel art, chunky outlines, flat warm palette. Floor-level
+  camera in foot scenes, a blue tiny for scale, green stink wisps drawn in. Verb bar of rounded
+  orange pills. Portrait bad-end cards with one cruel speech bubble. Two-to-four-frame loops.
+- **Overworld** (The Yellow Socks): top-down pixel town, each building a facade with a sign plaque,
+  CLOSED until unlocked, paths joining them, a cursor arrow, a strip for time/day along the top.
+
+## 3. The world
+
+### Generation
+At *New game* the model is asked for a town as JSON: a name and vibe (college town, seaside resort,
+boarding school), 10–16 **locations**, 6–12 **residents** with full sheets, a **schedule** per
+resident (where she is in each time slot), each location's **opening rule** (open from the start,
+opens on day N, opens when a quest completes, opens when favor with X ≥ Y), and 3–5 **opening
+quests**. The extension validates it, fixes gaps (every resident has a home, every closed building
+has a way to open), and lays out the map.
+
+### Locations
+```json
+{ "id": "laundromat", "name": "Suds & Socks", "type": "laundromat",
+  "open": { "when": "quest", "quest": "lost_sock" }, "hours": ["morning", "afternoon", "evening"],
+  "residents": ["dolores"], "interior": "rows of dryers, a folding table piled with socks, warm lint air",
+  "events": ["sock_sorting", "service_row"], "items": ["bobby pin"], "notes": "" }
+```
+Types give defaults for everything (icon, palette, event list, interior prompt): sorority house,
+dorm, gym, cinema, laundromat, spa, cafe, burger joint, shoe store, library, park, bus stop,
+lighthouse, farm plot, pool, tennis court, boutique, thrift store, your flat. The model may invent
+a type; it falls back to a generic facade.
+
+New locations appear during play: when a conversation mentions a place that is not on the map
+("come by the pool tomorrow"), the reconcile step proposes it, and it is added CLOSED with an
+opening rule. The town grows with the story, as the CLOSED signs do in The Yellow Socks.
+
+### Time
+A day counter and four slots: morning, afternoon, evening, night. Travelling to another building
+costs a slot; a scene costs a slot; sleeping at home ends the day. Residents follow their schedule
+so the gym has the sporty girl in the morning and the cinema fills up in the evening. Deadlines
+(a quest due by day 7, a shrink that gets worse every night) use the clock. The top strip shows
+day, slot, money, and your size.
+
+### Travel and exploring
+Click a building: if CLOSED the sign tells you what it needs (or "?" if the rule is hidden); if
+open and empty you get a short look-around with a chance to find an item; if someone is there a
+scene starts. The park and streets are explorable too: random encounters by slot, drawn from the
+residents' schedules. A **Where is everyone?** toggle shows resident markers on the map for the
+current slot (once you know their routine).
+
+### Drawing the map
+The extension draws the overworld itself on a canvas, so it is clickable, consistent and updates
+instantly. Procedural pixel buildings in the screenshot's style: a facade in the type's palette, a
+roof band, a sign plaque reading the name or CLOSED, windows, a door, a type icon (dumbbell, film
+reel, sock, cup, burger arches, books). Paths are routed between doors on a grass island with
+trees, a fountain plaza, a lighthouse, a crop field. Residents and you are small sprites; the cursor
+arrow sits over your target. Drawn at 1× and scaled with nearest-neighbour, so it stays crisp.
+AI image generation is **not** used for the map; it is used for interiors and sprites (below).
+
+## 4. The scene (visual novel)
+
+- **Background**: one pixel-art interior per location, generated once from the location's interior
+  line and cached (with a night variant). Pixel style prompt is fixed; see §6.
+- **Sprites**: per resident, a sprite sheet of a standing pose with 6 expressions (neutral, smug,
+  annoyed, laughing, bored, disgusted), generated once from her sheet and cached. The extension
+  slices it and shows the right one from an `[expr]` tag in the dialogue. A **feet card** per
+  resident (her shoes, socks, soles, drawn floor-level) is the reference for event pictures.
+- **Dialogue**: the model writes the scene as VN lines (`Name [smug]: ...`, narration in italics)
+  and ends with a choice block:
+  ```
+  [CHOICES]
+  1. Offer to carry her gym bag
+  2. Ask about the laundromat key
+  3. (Sniff check) Lean in and compliment her sneakers
+  4. Leave
+  ```
+  The extension renders buttons; a check shows its odds from the engine before you click. Picking
+  one posts it as your chat message. Free text is always allowed. The chat log stays a readable
+  story and SillyTavern swipes and branches keep working.
+- **Group scenes**: two or three residents at a location at once (the sorority lounge in the
+  evening) show stacked sprites; the model voices all of them.
+
+## 5. The events (the tastysox games as modules)
+
+Each event is `{ trigger, verbs, meters, resolve(), endings, picturePreset }` in
+`src/events/`. The engine opens one when its trigger fires inside a scene (a location event list
++ relationship state + the model asking for it with an `[EVENT service_row]` tag).
+
+| Event | Where | Loop |
 | --- | --- | --- |
-| **Service row** | Foot Service at the Movies, Zeta Beta Zeta Sorority, The Yellow Socks | A row of girls. Arrows move you from one pair of feet to the next. Verbs: Kiss, Sniff, Lick, Rub, Talk, Info. Each girl secretly wants a specific mix; get it right and she rewards you (socks come off, a pass), get it wrong and she punishes you. Stations: Boudoir (nail painting), Closet (shoe cleaning), Laundry (sock worship), a scent-matching minigame. |
-| **Tiny expedition** | Avril's Ex 1 & 2, Smelly Adventure, Stuck in the ZBZ Mansion | Shrunk to a few cm. Explore under a bed, a locker room, a mansion. Point-and-click inventory puzzles (find the cord, find the dagger). You can be crushed by wandering. Each girl has a "pass"; finding it unlocks the next girl (the "Altar"). Many endings, most of them bad in a fun way. |
-| **Seduction clock** | Socks, Seduction and Shrinking | Dating sim: pick one of six targets, raise affection with talk and chore minigames, while a shrink timer runs. Steal her socks to stop shrinking. |
-| **Validation / tasks** | Stinky Validation | A list of tasks, one per girl, to earn a prestigious validation. Dominant girls make each task humiliating. |
-| **Management** | Gts Management | Keep giantesses happy day by day, earn money, random events. |
+| **Service row** | cinema, lounge, bus | Arrows between pairs of feet, verbs Kiss/Sniff/Lick/Rub/Talk, each girl's hidden wants, a clock, reward reveal or punishment. |
+| **Chore** | laundromat, sports hall, boudoir | Sock sorting by scent description (the matching minigame), shoe cleaning, nail painting. Pays favor or money. |
+| **Tiny expedition** | any interior, once shrunk | The building's interior becomes a small zone graph: climb, hide in a shoe, search, take, use; crush rolls when a resident with high Attention moves; her "pass" opens the next zone. |
+| **Seduction clock** | a quest line | Affection vs shrink timer across days; chores pay affection; get her socks before you hit 2 cm. |
+| **Validation** | sorority house | A board of one task per resident; three failures flip the board. |
+| **Punishment / bad end** | anywhere | Irritation maxed: a punishment scene; twice in a row, or a lethal roll, a bad-end card. |
 
-The cast is the real engine. Every girl on the creator's site has the same sheet:
+The verb bar from the service games appears over the picture during an event; outside events the
+scene shows choices instead.
 
-- attitude archetype (four: Stuck Up, Chillax, Tough Love, Wicked)
-- six dials, 0–11: Bossy, Bratty, Friendly, Smelly, Sweaty, Dirty
-- a foot-odor profile as percentages of four notes: cheesy, lemony, fishy, meaty
-- signature shoes and signature socks (UGGs + "Princess" socks; Crocs + toe socks; Doc Martens + polka dots; loose Adidas + oversized socks; nylons + boots)
-- a one-line personality hook, hobbies, a kink, a sorority job, a silly "superpower"
-
-That sheet drives everything: how dangerous she is to a tiny, what she rewards, what her feet
-are like, how she talks. We copy the *shape* of the sheet, not the girls.
-
-### Visual language (from the screenshots)
-
-- 2000s flash-game pixel art: chunky outlines, flat warm palette (oranges, browns, dusty pinks),
-  no gradients, big readable shapes.
-- **Camera on the floor.** The tiny is a 30-px sprite at the bottom edge; the feet fill the frame.
-  Socks are read as giant textured walls with the sock text ("PRINCESS") running vertically.
-- **Stink is drawn**: green/yellow wisps rising off socks, sweat droplets, a hazy tint on the air.
-- **UI in the picture**: a verb bar of rounded orange pills along the top (KISS SNIFF LICK RUB INFO),
-  left/right arrows to move along the row, a text box along the bottom.
-- **Bad-end cards**: portrait panel, the girl's face in a corner, the tiny taped to a sole or
-  pinned under toes, one short cruel line in a speech bubble ("I give you one week or two in my
-  boots. LOL. I hope you die.").
-- **Loops**: toes wiggle, wisps drift, droplets fall, the sole slowly lowers. Two to four frames,
-  looped forever.
-- Tinies are blue-skinned little people; the girls are normal-skinned giants by comparison.
-
-## 2. What the extension does
-
-A SillyTavern extension that turns a chat into one of these games. The chat model narrates and
-voices the girls; the extension owns the rules, the numbers, the pictures and the endings.
-
-1. **New game** → pick a scenario, cast size, and tone sliders (how cruel, how smelly, how lethal).
-   The extension asks the model for a fresh cast using the sheet template, and generates a
-   portrait and a "feet card" (shoes, socks, soles) per girl as reference images.
-2. **Play** → a game panel (dockable, pop-out like Scene Mapper) shows the current picture, the
-   verb bar, your meters and the girl's meters. Clicking a verb posts your action into the chat as
-   your message, the rules engine rolls the outcome and injects it into the prompt, and the model
-   writes the scene *around the outcome the engine already decided*.
-3. **See it** → after each scene a pixel-art picture is generated in the house style, optionally as
-   a 4-frame loop. Bad ends get their card.
-4. **Endings** → when a meter crosses a line the engine declares an ending (good, tasty, or dead),
-   shows the card, and offers *rewind to checkpoint* (a chat branch) or *continue as a new chapter*
-   (you stay shrunk in her boot and the story goes on).
-
-## 3. The character sheet
+## 6. The character sheet (mechanics, not flavour)
 
 ```json
-{
-  "name": "Marisol Reyes", "age": 21, "from": "Spain", "height_cm": 173, "shoe_us": 9,
-  "archetype": "Princess",          // Princess | Slacker | Drill | Viper (= Stuck Up / Chillax / Tough Love / Wicked)
+{ "id": "marisol", "name": "Marisol Reyes", "age": 21, "from": "Spain", "height_cm": 173, "shoe_us": 9,
+  "archetype": "Princess",          // Princess | Slacker | Drill | Viper (Stuck Up / Chillax / Tough Love / Wicked)
   "dials": { "bossy": 7, "bratty": 10, "friendly": 2, "smelly": 9, "sweaty": 8, "dirty": 4 },
   "odor":  { "cheesy": 50, "lemony": 20, "fishy": 10, "meaty": 20 },
   "shoes": "white platform sneakers, worn all day", "socks": "pink ankle socks with a crown logo",
-  "hook": "Daddy's money, a tennis scholarship she doesn't need, and a tiny she doesn't ask about",
-  "job": "President", "hobby": "tennis, shopping", "kink": "sweat", "quirk": "says 'ew' as a greeting",
-  "wants": { "verbs": ["rub", "sniff"], "hates": ["lick"], "praise": "her arches", "trigger": "being ignored" }
-}
+  "hook": "Daddy's money, a tennis scholarship she doesn't need", "job": "sorority president",
+  "hobby": "tennis, shopping", "kink": "sweat", "quirk": "says 'ew' as a greeting",
+  "home": "sorority_house", "schedule": { "morning": "tennis_court", "afternoon": "cafe", "evening": "sorority_house", "night": "sorority_house" },
+  "wants": { "verbs": ["rub", "sniff"], "hates": ["lick"], "praise": "her arches", "trigger": "being ignored" } }
 ```
+Smelly sets stench damage of Sniff/Lick; Sweaty and Dirty set how slippery and grimy a sole is
+(climb checks, the Dirt status); Bossy sets orders per scene; Bratty sets how fast irritation
+rises; Friendly is what stands between a tiny and a bad end. The odor profile is text the model
+must use whenever it describes her feet, so every girl smells different and consistently so.
+Sheets can also be derived from existing character cards or a whole group ("sheet this group").
 
-- The model fills it from a seed line ("a Spanish tennis princess") or from an existing
-  character card ("sheet this card"). Group chat members can be sheeted in bulk, so an existing
-  group becomes the cast.
-- Dials are mechanics, not flavour. **Smelly** sets the stench damage of Sniff/Lick. **Sweaty** and
-  **Dirty** set how slippery and grimy a sole is (climb checks, "dirt" status). **Bossy** sets how
-  many orders she gives per scene. **Bratty** sets how fast irritation rises. **Friendly** is the
-  only thing standing between a tiny and a bad end.
-- The odor profile is text the model must use when it describes a smell, so every girl smells
-  different and consistently so. It also powers the scent-matching minigame.
+## 7. The rules engine and the model
 
-## 4. Meters and the rules engine
+- **The engine decides, the model narrates.** `src/rules.js` is pure, seeded, unit-tested. Each
+  turn it builds a **brief** that goes in through a `generate_interceptor` (the Scene Mapper
+  pattern): location, slot, who is here with sheet and relationship, active quests, any event state
+  and the outcome it already rolled, the format rules (VN lines, `[expr]` tags, a `[CHOICES]`
+  block, 2–4 paragraphs then stop).
+- **Reconcile** after each reply with a cheap quiet prompt (or a Connection Profile): favor and
+  irritation deltas, items given or taken, quest progress, time passed, new places or people
+  mentioned, a shrink or grow, which building opened. Deltas are clamped; anything odd is logged.
+- **You**: Size (cm), Money, Stamina, Composure (stench tolerance), Dirt, Reputation; per resident
+  Favor and Irritation (and Fear, once tiny); Inventory; a Journal of quests; Flags; Endings seen.
 
-The engine is pure JS in `src/rules.js`, deterministic given a seed, unit-tested. The model never
-decides outcomes; it is told them.
+## 8. Pictures and loops
 
-**You** — Size (cm; 175 → 8 → 2), Stamina, Composure (stench tolerance), Favor (per girl),
-Dirt (how filthy you are), Inventory, Location, and a Clock (turns left in the scene).
+- Fixed **style prompt** for everything: *"2000s flash game pixel art, chunky dark outlines, flat
+  warm palette, no gradients, no text."* Interiors add *"visual novel background, eye level, empty
+  room"*; event pictures add *"camera on the floor at a tiny's eye level, the socked feet fill the
+  frame, a small blue-skinned tiny at the bottom edge for scale, green stink wisps rising"*.
+- **Consistency**: the resident's sprite and feet card go along as reference images (as Nano
+  Banana POV sends avatars). The tiny sprite is a fixed reference.
+- **Backends**: the ones the sibling extensions already wire up: Google AI Studio (Nano Banana)
+  through SillyTavern's secret store, OpenRouter, NanoGPT, any OpenAI-compatible API, NovelAI,
+  SillyTavern's own Image Generation. Keys never live in extension settings. Everything is cached
+  per location/resident/variant so a town costs a few dozen images, not one per turn.
+- **Bad-end cards**: portrait, her face in a top corner looking down, the tiny where the engine
+  put him; the speech bubble is an overlay drawn by the extension so it is always legible.
+- **Loops**: a 2×2 **sprite sheet** of near-identical frames (toes curl, wisp drifts, droplet
+  falls), sliced client-side and played as a 4-frame loop in the panel and the chat; GIF export.
+  Free CSS layers over any picture: drifting wisps, falling droplets, a slow heave, screen shake on
+  a stomp. The map itself has idle animation (sign flicker, smoke from the burger joint, waves).
+- Pictures post as hidden chat messages the model does not read.
 
-**Each girl** — Mood, Attention (is she aware of you right now), Irritation, Reward progress,
-Status of her feet (shoes on / socked / barefoot, resting / wiggling / stomping).
-
-**A turn**: you pick a verb (or type anything; free text is classified into a verb + target by a
-cheap quiet prompt). The engine computes `roll + your mods vs her dials`, applies deltas, checks
-for triggers (irritation > X → punishment; attention + bossy → an order; size < 3 cm → crush risk
-on every move), and emits an **outcome block**:
-
-```
-[GAME] Turn 7 of 12 · Marisol (socked, wiggling) · You: 8 cm, Composure 3/10, Favor 4
-You sniffed her left sock. She felt it. Success: she liked it (+2 favor) but the stench hit hard (-3 composure).
-Marisol gives an order: "Rub the toes. Both feet. Don't stop." (refusing: +3 irritation)
-Describe this in 2–4 paragraphs from the tiny's point of view, then stop and wait for the player.
-```
-
-This goes in through a `generate_interceptor` the way Scene Mapper does it, so the narration
-always matches the state. After the reply, a quiet prompt reads the text for anything the model
-added on its own (she took her shoe off, she put you in her pocket) and reconciles the state.
-
-## 5. Scenarios (each is a module in `src/scenarios/`)
-
-1. **Service Row** (ship first). Three to six girls on a couch/row of seats. Arrows move you
-   between pairs of feet. Verbs: Kiss, Sniff, Lick, Rub, Talk, Look. Clock = the movie / the
-   study session / the bus ride. Win: every girl satisfied → the reward reveal. Lose: a girl's
-   irritation maxes → punishment scene; two punishments → bad end card.
-2. **Tiny Expedition.** A place (under a bed, a locker room, a dorm bathroom) as a small graph of
-   zones with items and hazards. Verbs: Go, Climb, Hide (in a shoe, under a sock), Search, Take,
-   Use. Each girl guards a zone; her "pass" (something she wants) unlocks the next. Crush rolls
-   when a girl with high Attention moves. Items solve puzzles the way the point-and-clicks do.
-   Can read the Scene Mapper map when that extension is present (optional, later).
-3. **Seduction Clock.** Pick a target among the cast. Affection vs a shrink timer (you lose a
-   step of size every N turns). Chores as minigame turns (clean her shoes, match her socks, paint
-   her nails) that pay affection. Get her socks before you hit 2 cm.
-4. **Validation.** A board of one task per girl, each with a humiliation cost. Finish the board to
-   earn the validation; fail three and the board flips to a bad end.
-5. **Management** (later). Day loop, money, events, happiness per giantess.
-
-A scenario = { setup prompt, verbs, zone/graph, win/lose rules, ending table, picture presets }.
-
-## 6. Pictures
-
-- **Style prompt** (fixed, prepended to every picture): *"2000s flash game pixel art, chunky dark
-  outlines, flat warm palette, no gradients, no text, camera on the floor at the tiny's eye level,
-  the socked feet fill the frame, a small blue-skinned tiny person at the bottom edge for scale,
-  green stink wisps rising, 16:10."* Plus per-scene lines from the engine (which girl, shoes on or
-  off, wiggling or stomping, where you are standing, how far away).
-- **Consistency**: each girl's portrait and feet card are sent as reference images, the same way
-  Nano Banana POV sends avatars. The tiny's sprite is a fixed reference.
-- **Backends**: reuse what the other two extensions already have — Google AI Studio (Nano Banana)
-  via SillyTavern's secret store, OpenRouter / NanoGPT / any OpenAI-compatible API, NovelAI, or
-  SillyTavern's own Image Generation. Keys never live in the extension settings.
-- **Bad-end cards**: portrait aspect, "her face in the top corner looking down, the tiny [taped to
-  her sole / under her toes / inside her boot], one speech bubble" — the bubble text is drawn by the
-  extension as an overlay, not by the model, so it is always legible.
-- **Loops**: ask the model for a **2×2 sprite sheet** of the same frame with small changes (toes
-  curl, wisp drifts, droplet falls), slice it client-side, play it as a 4-frame loop in the panel
-  and in the chat message. Export to GIF with a tiny encoder for sharing. On top of any picture,
-  cheap CSS layers: drifting wisps, falling droplets, a slow heave on a sole, screen shake on a
-  stomp. These cost nothing and run even without image generation.
-- Pictures are posted as hidden chat messages (the model does not read them), like the sibling
-  extensions do.
-
-## 7. The panel
+## 9. The panel
 
 ```
-┌──────────────────────────────────────────────┐
-│ [picture / loop]                             │
-│  KISS  SNIFF  LICK  RUB  TALK  LOOK   ◀  ▶   │
-├──────────────────────────────────────────────┤
-│ You  8 cm  Stamina ▮▮▮▮▯  Composure ▮▮▯▯▯    │
-│ Marisol  socked · wiggling   Mood 😒  Irrit ▮▮▮▯│
-│ Favor ▮▮▮▮▯   wants: rub, sniff   hates: lick │
-│ Turn 7/12   📦 bobby pin, popcorn kernel      │
-└──────────────────────────────────────────────┘
+┌ Day 3 · Evening · $42 · 175 cm ──────────────── Map | Scene | Cast | Journal | Gallery ┐
+│                                                                                       │
+│   [ overworld canvas: island, buildings, CLOSED signs, paths, you, cursor arrow ]      │
+│                                                                                       │
+├───────────────────────────────────────────────────────────────────────────────────────┤
+│ Suds & Socks — CLOSED — "Find Dolores's lost sock" (Journal)         [Go]  [Wait]  [Sleep]│
+└───────────────────────────────────────────────────────────────────────────────────────┘
 ```
+Scene tab: background, sprite, nameplate, dialogue box, choice buttons; verb bar during events.
+Cast: every sheet, editable, with relationship meters and known schedule. Journal: quests and
+flags. Gallery: pictures, loops, endings unlocked. Dockable in the extensions drawer, pop-out
+window like Scene Mapper, mobile layout.
 
-Dockable in the extensions drawer, pop-out window like Scene Mapper, a mobile layout. A cast tab
-shows every sheet (editable). A log tab shows the engine's rolls. A gallery tab keeps the pictures
-and endings unlocked this game (the "endings" list is a tastysox staple).
+Slash commands: `/sole new [seed]`, `/sole go <place>`, `/sole wait`, `/sole sleep`,
+`/sole talk <name>`, `/sole <verb> [target]`, `/sole picture`, `/sole loop`, `/sole rewind`,
+`/sole export` (town + cast as JSON, importable).
 
-Slash commands: `/sole start [scenario]`, `/sole cast [seed]`, `/sole sheet <name>`,
-`/sole <verb> [target]`, `/sole picture`, `/sole loop`, `/sole rewind`.
-
-## 8. Code layout (same conventions as nanoban and st_ext_3d)
+## 10. Code layout (same conventions as nanoban and st_ext_3d)
 
 ```
-manifest.json         generate_interceptor: soleSurvivorInterceptor
-index.js              SillyTavern glue: settings, panel, slash commands, events, injection
+manifest.json           generate_interceptor: soleSurvivorInterceptor
+index.js                SillyTavern glue: settings, panel host, slash commands, events, injection
 style.css
-src/sheet.js          template, generation prompt, forgiving JSON parsing, validation
-src/rules.js          seeded RNG, verb resolution, meters, triggers, outcome block
-src/scenarios/*.js    service.js, expedition.js, seduction.js, validation.js
-src/endings.js        ending table, card text, checkpoint/rewind helpers
-src/picture.js        style prompt + scene lines + reference handling
-src/frames.js         sprite-sheet slicing, loop playback, GIF export
-src/panel.js          DOM for the panel (pure functions returning HTML/state)
-test/*.test.js        node --test, no SillyTavern dependency
+src/world.js            town generation prompt, validation, opening rules, time, schedules
+src/map.js              layout (island, path routing) and canvas drawing of procedural pixel buildings
+src/scene.js            VN brief, dialogue parsing ([expr], [CHOICES], [EVENT]), choice rendering
+src/sheet.js            character template, generation, forgiving JSON parsing, card → sheet
+src/rules.js            seeded RNG, checks, meters, triggers, outcome text
+src/events/*.js         service_row, chore, expedition, seduction, validation, punishment
+src/endings.js          ending table, cards, checkpoints and rewind
+src/picture.js          style prompts, references, caching, backends (shared with the siblings)
+src/frames.js           sprite-sheet slicing, loops, GIF export
+src/panel.js            pure DOM builders for the tabs
+test/*.test.js          node --test, no SillyTavern dependency
 ```
 
-## 9. Order of work
+## 11. Order of work
 
-1. **MVP** — sheet generator, rules engine, Service Row, panel with verb bar and meters, prompt
-   injection and reconciliation, text-only endings with rewind. Tests for sheet parsing and rules.
-2. **Pictures** — style prompt, references, Nano Banana first, then the other backends. Bad-end
-   cards with overlay bubbles.
-3. **Loops** — sprite-sheet frames, CSS layers, GIF export.
-4. **Tiny Expedition**, then **Seduction Clock**.
-5. **Validation**, **Management**, Scene Mapper link, cast import/export as JSON.
+1. **World MVP** — town generation + validation, procedural pixel map on a canvas with CLOSED
+   signs and travel, the clock and schedules, the VN scene with parsed choices, the interceptor
+   brief and reconcile, cast sheets, the journal. No pictures yet (placeholder backgrounds and
+   coloured silhouettes). Tests for world validation, map layout, dialogue parsing, rules.
+2. **Pictures** — interiors and sprite sheets with caching, Nano Banana first, other backends
+   next. Bad-end cards.
+3. **Events** — service row and chores, then punishment and endings with rewind.
+4. **Tiny** — shrink arc and the expedition event inside interiors; seduction clock quest line.
+5. **Loops**, validation board, management day loop, Scene Mapper link, import/export.
 
-## 10. Decisions taken (change any of them)
+## 12. Decisions taken (change any of them)
 
-- Original cast every game; no tastysox characters or art shipped.
-- The engine, not the model, decides outcomes. The model only narrates.
-- Verbs post as the user's own message (like Scene Mapper's adventure mode), so the chat log stays
-  a readable story and swipes/branches keep working.
-- Comedic-cruel tone by default, with sliders for lethality and smell intensity; a "no death"
+- The overworld is drawn by code, not by an image model, so it is clickable and stable; AI
+  pictures are for interiors, sprites, event shots and cards.
+- Original town and cast every game; nothing of tastysox's shipped.
+- The engine, not the model, decides outcomes and time. The model writes dialogue and choices.
+- Choices and verbs post as your own chat message, so the log is a readable story and swipes and
+  branches keep working.
+- Comedic-cruel tone by default, sliders for cruelty, smell intensity, and lethality; a "no death"
   switch turns bad ends into "kept" ends.
-- Working title "Sole Survivor" (manifest key `soleSurvivor`, command `/sole`).
+- Working title "Sole Survivor", manifest key `soleSurvivor`, command `/sole`.
